@@ -21,7 +21,9 @@
  * GNU General Public License for more details.
  */
 
+#include "intset.h"
 #include "lazy.h"
+#include "coupling.h"
 
 int set_contains_l(intset_l_t *set, val_t val, int transactional)
 {
@@ -41,7 +43,7 @@ int set_remove_l(intset_l_t *set, val_t val, int transactional)
 	else return lockc_delete(set, val);
 }
 
-int set_rq_l(intset_l_t *set, val_t val, int transactional) {
+int set_rq_l(intset_l_t *set, val_t low, val_t high, int transactional) {
   // if (transactional == 2) return parse_delete(set, val);
   // else return lockc_delete(set, val);
   return 0;

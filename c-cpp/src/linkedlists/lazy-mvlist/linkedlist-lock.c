@@ -21,7 +21,7 @@
  * GNU General Public License for more details.
  */
 
-#include "intset.h"
+#include "linkedlist-lock.h"
 
 node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
                      int transactional) {
@@ -41,15 +41,16 @@ node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
     perror("malloc");
     exit(1);
   }
-  node_l->ts = (uint32_t *)malloc(sizeof(uint32_t) * depth);
+  node_l->ts = (timestamp_t*)malloc(sizeof(timestamp_t) * depth);
   if (node_l->ts == NULL) {
     perror("malloc");
     exit(1);
   }
   for (i = 0; i < depth; ++i) {
     node_l->next[i] = (i == 0 ? next : NULL);
-    node_l->ts[i] = NULL_TIMESTAMP;
+    node_l->ts[i] = (i == 0 ? ts : NULL_TIMESTAMP);
   }
+  node_l->newest_next = next;
   INIT_LOCK(&node_l->lock);
   return node_l;
 }
@@ -67,9 +68,53 @@ intset_l_t *set_new_l(uint32_t max_rq) {
   max = new_node_l(VAL_MAX, NULL, NULL_TIMESTAMP, depth, 0);
   min = new_node_l(VAL_MIN, max, NULL_TIMESTAMP, depth, 0);
   set->head = min;
-  set->rqt = new_rqtracker_l(max_rq);
+  set->rqt = rqtracker_new_l(max_rq);
 
   return set;
+}
+
+void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
+                         uint32_t num_active) {
+  timestamp_t curr_rq, curr_edge, next_edge;
+  int a, i, j, curr_idx, next_idx, new_idx, prev_idx;
+  uint32_t depth, newest;
+
+  if (num_active == 0) {
+    return;
+  }
+
+  depth = node->depth;
+  newest = (node->newest + 1) % depth;
+  for (i = 0, a = 0; i < depth - 1; ++i, ++a) {
+    if (a < num_active) {
+      curr_rq = active[a];
+    } else {
+      /* Automatically trigger reuse. */
+      curr_rq = MAX_TIMESTAMP;
+    }
+
+    curr_idx = (newest + i) % depth;
+    next_idx = (curr_idx + 1) % depth;
+    curr_edge = node->ts[curr_idx];
+    next_edge = node->ts[next_idx];
+
+    if (curr_edge == NULL_TIMESTAMP ||
+        (curr_edge < curr_rq && next_edge <= curr_rq)) {
+      for (j = 0; j < depth - 1; ++j) {
+        new_idx = (depth + (curr_idx - j)) % depth;
+        if (new_idx == newest) {
+          break;
+        } else {
+          /* Shift edges to make room. */
+          prev_idx = (depth + (new_idx - 1)) % depth;
+          node->next[new_idx] = node->next[prev_idx];
+          node->ts[new_idx] = node->ts[prev_idx];
+        }
+      }
+      return;
+    }
+  }
+  assert(0);
 }
 
 void node_delete_l(node_l_t *node) {
@@ -85,7 +130,7 @@ void set_delete_l(intset_l_t *set) {
 
   node = set->head;
   while (node != NULL) {
-    next = node->next[0];
+    next = node->next[node->newest];
     node_delete_l(node);
     node = next;
   }
@@ -97,16 +142,16 @@ int set_size_l(intset_l_t *set) {
   node_l_t *node;
 
   /* We have at least 2 elements */
-  node = set->head->next[0];
-  while (node->next[0] != NULL) {
+  node = set->head->newest_next;
+  while (node->newest_next != NULL) {
     size++;
-    node = node->next[0];
+    node = node->newest_next;
   }
 
   return size;
 }
 
-rqtracker_l_t *new_rqtracker_l(uint32_t max_rq) {
+rqtracker_l_t *rqtracker_new_l(uint32_t max_rq) {
   rqtracker_l_t *rqt;
   int i;
 
@@ -121,7 +166,8 @@ rqtracker_l_t *new_rqtracker_l(uint32_t max_rq) {
   return rqt;
 }
 
-timestamp_t *snapshot_active_l(rqtracker_l_t *rqt) {
+timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
+                                         uint32_t *num_active) {
   timestamp_t *s;
   timestamp_t temp;
   int curr_rq, end, i, j, k;
@@ -129,12 +175,10 @@ timestamp_t *snapshot_active_l(rqtracker_l_t *rqt) {
   end = rqt->max_rq;
   s = (timestamp_t *)malloc(sizeof(timestamp_t) * rqt->max_rq);
   LOCK(&rqt->lock);
-  s[0] = rqt->active[0];
-  for (i = 1; i < end; ++i) {
+  for (i = 0; i < rqt->max_rq; ++i) {
     curr_rq = rqt->active[i];
     if (curr_rq == NULL_TIMESTAMP) {
       s[--end] = NULL_TIMESTAMP;
-      --i; /* Redo the iteration. */
     } else {
       for (j = 0; j < i && s[j] < curr_rq; ++j)
         ;
@@ -147,7 +191,33 @@ timestamp_t *snapshot_active_l(rqtracker_l_t *rqt) {
       s[k] = curr_rq;
     }
   }
+  *num_active = end;
+  UNLOCK(&rqt->lock);
   return s;
+}
+
+timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
+  LOCK(&rqt->lock);
+  ++(rqt->ts);
+  assert(rqt->ts < MAX_TIMESTAMP);
+  return rqt->ts;
+}
+
+void rqtracker_end_update_l(rqtracker_l_t *rqt) { UNLOCK(&rqt->lock); }
+
+timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
+  timestamp_t ts;
+  LOCK(&rqt->lock);
+  ts = rqt->ts;
+  rqt->active[rq_id] = ts;
+  UNLOCK(&rqt->lock);
+  return ts;
+}
+
+void rqtracker_end_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
+  LOCK(&rqt->lock);
+  rqt->active[rq_id] = NULL_TIMESTAMP;
+  UNLOCK(&rqt->lock);
 }
 
 void rqtracker_delete_l(rqtracker_l_t *rqt) {

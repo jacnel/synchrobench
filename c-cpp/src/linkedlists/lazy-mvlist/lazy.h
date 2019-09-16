@@ -1,3 +1,6 @@
+#ifndef LAZYMVLIST_LAZY_H
+#define LAZYMVLIST_LAZY_H
+
 /*
  * File:
  *   lazy.c
@@ -23,8 +26,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
-#include "coupling.h"
+#include "linkedlist-lock.h"
 
 /* handling logical deletion flag */ 
 inline int is_marked_ref(long i);
@@ -39,3 +41,5 @@ int parse_find(intset_l_t *set, val_t val);
 int parse_insert(intset_l_t *set, val_t val);
 int parse_delete(intset_l_t *set, val_t val);
 int parse_rq(intset_l_t *set, val_t low, val_t high);
+
+#endif

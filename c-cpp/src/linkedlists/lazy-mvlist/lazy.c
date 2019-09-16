@@ -4,15 +4,14 @@
  * Author(s):
  *   Vincent Gramoli <vincent.gramoli@epfl.ch>
  * Description:
- *   Lazy linked list implementation of an integer set based on Heller et al. algorithm
- *   "A Lazy Concurrent List-Based Set Algorithm"
- *   S. Heller, M. Herlihy, V. Luchangco, M. Moir, W.N. Scherer III, N. Shavit
- *   p.3-16, OPODIS 2005
+ *   Lazy linked list implementation of an integer set based on Heller et al.
+ * algorithm "A Lazy Concurrent List-Based Set Algorithm" S. Heller, M. Herlihy,
+ * V. Luchangco, M. Moir, W.N. Scherer III, N. Shavit p.3-16, OPODIS 2005
  *
  * Copyright (c) 2009-2010.
  *
  * lazy.c is part of Synchrobench
- * 
+ *
  * Synchrobench is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation, version 2
@@ -26,94 +25,117 @@
 
 #include "lazy.h"
 
-inline int is_marked_ref(long i) {
-	return (int) (i &= LONG_MIN+1);
-}
+inline int is_marked_ref(long i) { return (int)(i &= LONG_MIN + 1); }
 
 inline long unset_mark(long i) {
-	i &= LONG_MAX-1;
-	return i;
+  i &= LONG_MAX - 1;
+  return i;
 }
 
 inline long set_mark(long i) {
-	i = unset_mark(i);
-	i += 1;
-	return i;
+  i = unset_mark(i);
+  i += 1;
+  return i;
 }
 
 inline node_l_t *get_unmarked_ref(node_l_t *n) {
-	return (node_l_t *) unset_mark((long) n);
+  return (node_l_t *)unset_mark((long)n);
 }
 
 inline node_l_t *get_marked_ref(node_l_t *n) {
-	return (node_l_t *) set_mark((long) n);
+  return (node_l_t *)set_mark((long)n);
 }
 
 /*
- * Checking that both curr and pred are both unmarked and that pred's next pointer
- * points to curr to verify that the entries are adjacent and present in the list.
+ * Checking that both curr and pred are both unmarked and that pred's next
+ * pointer points to curr to verify that the entries are adjacent and present in
+ * the list.
  */
 inline int parse_validate(node_l_t *pred, node_l_t *curr) {
-	return (!is_marked_ref((long) pred) && !is_marked_ref((long) curr) && (pred->next[0] == curr));
+  return (!is_marked_ref((long)pred) && !is_marked_ref((long)curr) &&
+          (pred->newest_next == curr));
 }
 
 int parse_find(intset_l_t *set, val_t val) {
-	node_l_t *curr;
-	curr = set->head;
-	while (curr->val < val)
-		curr = get_unmarked_ref(curr->next[0]);
-	return ((curr->val == val) && !is_marked_ref((long) curr));
+  node_l_t *curr;
+  curr = set->head;
+  while (curr->val < val) curr = get_unmarked_ref(curr->newest_next);
+  return ((curr->val == val) && !is_marked_ref((long)curr));
 }
 
 int parse_insert(intset_l_t *set, val_t val) {
-	node_l_t *curr, *pred, *newnode;
-	int result;
-	
-	pred = set->head;
-	curr = get_unmarked_ref(pred->next[0]);
-	while (curr->val < val) {
-		pred = curr;
-		curr = get_unmarked_ref(curr->next[0]);
-	}
-	LOCK(&pred->lock);
-	LOCK(&curr->lock);
-	result = (parse_validate(pred, curr) && (curr->val != val));
-	if (result) {
+  node_l_t *curr, *pred, *newnode;
+  timestamp_t *s;
+  timestamp_t ts;
+  int r, result;
+  uint32_t num_active, newest;
+
+  pred = set->head;
+  curr = get_unmarked_ref(pred->newest_next);
+  while (curr->val < val) {
+    pred = curr;
+    curr = get_unmarked_ref(curr->newest_next);
+  }
+  LOCK(&pred->lock);
+  LOCK(&curr->lock);
+  result = (parse_validate(pred, curr) && (curr->val != val));
+  if (result) {
+    s = rqtracker_snapshot_active_l(set->rqt, &num_active);
+    node_reclaim_edge_l(pred, s, num_active);
     newnode = new_node_l(val, curr, NULL_TIMESTAMP, set->rqt->max_rq + 1, 0);
-		pred->next[0] = newnode;
-	} 
-	UNLOCK(&curr->lock);
-	UNLOCK(&pred->lock);
-	return result;
+    newest = (pred->newest + 1) % pred->depth;
+    ts = rqtracker_start_update_l(set->rqt);
+    newnode->ts[newnode->newest] = ts;
+    pred->next[newest] = newnode;
+    pred->ts[newest] = ts;
+    pred->newest = newest;
+    pred->newest_next = pred->next[newest];
+    rqtracker_end_update_l(set->rqt);
+  } 
+  UNLOCK(&curr->lock);
+  UNLOCK(&pred->lock);
+  return result;
 }
 
 /*
- * Logically remove an element by setting a mark bit to 1 
+ * Logically remove an element by setting a mark bit to 1
  * before removing it physically.
  *
- * NB. it is not safe to free the element after physical deletion as a 
+ * NB. it is not safe to free the element after physical deletion as a
  * pre-empted find operation may currently be parsing the element.
- * TODO: must implement a stop-the-world garbage collector to correctly 
+ * TODO: must implement a stop-the-world garbage collector to correctly
  * free the memory.
  */
 int parse_delete(intset_l_t *set, val_t val) {
-	node_l_t *pred, *curr;
-	int result;
-	
-	pred = set->head;
-	curr = get_unmarked_ref(pred->next[0]);
-	while (curr->val < val) {
-		pred = curr;
-		curr = get_unmarked_ref(curr->next[0]);
-	}
-	LOCK(&pred->lock);
-	LOCK(&curr->lock);
-	result = (parse_validate(pred, curr) && (val == curr->val));
-	if (result) {
-		curr->next[0] = get_marked_ref(curr->next[0]);
-		pred->next[0] = get_unmarked_ref(curr->next[0]);
-	}
-	UNLOCK(&curr->lock);
-	UNLOCK(&pred->lock);
-	return result;
+  node_l_t *pred, *curr;
+  timestamp_t ts, *s;
+  int result;
+  uint32_t num_active, pred_newest;
+
+  pred = set->head;
+  curr = get_unmarked_ref(pred->newest_next);
+  while (curr->val < val) {
+    pred = curr;
+    curr = get_unmarked_ref(curr->newest_next);
+  }
+  LOCK(&pred->lock);
+  LOCK(&curr->lock);
+  result = (parse_validate(pred, curr) && (val == curr->val));
+  if (result) {
+    s = rqtracker_snapshot_active_l(set->rqt, &num_active);
+    node_reclaim_edge_l(curr, s, num_active);
+    node_reclaim_edge_l(pred, s, num_active);
+    pred_newest = (pred->newest + 1) % pred->depth;
+    ts = rqtracker_start_update_l(set->rqt);
+    curr->next[curr->newest] = get_marked_ref(curr->next[curr->newest]);
+    curr->newest_next = curr->next[curr->newest];
+    pred->next[pred_newest] = get_unmarked_ref(curr->next[curr->newest]);
+    pred->ts[pred_newest] = ts;
+    pred->newest = pred_newest;
+    pred->newest_next = pred->next[pred_newest];
+    rqtracker_end_update_l(set->rqt);
+  }
+  UNLOCK(&curr->lock);
+  UNLOCK(&pred->lock);
+  return result;
 }

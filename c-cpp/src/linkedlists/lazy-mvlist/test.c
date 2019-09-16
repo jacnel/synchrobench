@@ -365,7 +365,7 @@ int main(int argc, char **argv)
   else
     srand(seed);
 	
-  set = set_new_l(1);
+  set = set_new_l(nb_threads);
 	
   stop = 0;
 	
@@ -377,7 +377,7 @@ int main(int argc, char **argv)
   i = 0;
   while (i < initial) {
     val = (rand() % range) + 1;
-    if (set_add_l(set, val, 0)) {
+    if (set_add_l(set, val, unit_tx)) {
       last = val;
       i++;
     }

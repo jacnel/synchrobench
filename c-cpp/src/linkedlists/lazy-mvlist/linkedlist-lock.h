@@ -1,3 +1,6 @@
+#ifndef LAZYMVLIST_LINKEDLIST_LOCK_H
+#define LAZYMVLIST_LINKEDLIST_LOCK_H
+
 /*
  * File:
  *   linkedlist-lock.c
@@ -76,18 +79,20 @@ typedef pthread_spinlock_t ptlock_t;
 #define UNLOCK(lock) pthread_spin_unlock((pthread_spinlock_t *)lock)
 #endif
 
-typedef uint32_t timestamp_t;
+typedef uint64_t timestamp_t;
 #define NULL_TIMESTAMP 0
 #define MIN_TIMESTAMP 1
-#define MAX_TIMESTAMP UINT32_MAX
+#define MAX_TIMESTAMP UINT64_MAX
 
+/* Keeps a pointer to the newest next for better performance. */
 typedef struct node_l {
   val_t val;
-  struct node_l **next;
-  timestamp_t *ts;
+  struct node_l *newest_next;
   volatile ptlock_t lock;
   uint32_t depth;
   uint32_t newest;
+  struct node_l **next;
+  timestamp_t *ts;
 } node_l_t;
 
 typedef struct rqtracker_l {
@@ -104,11 +109,21 @@ typedef struct intset_l {
 
 node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
                      int transactional);
+void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
+                         uint32_t num_active);
+void node_delete_l(node_l_t *node);
+
 intset_l_t *set_new_l(uint32_t max_rq);
 void set_delete_l(intset_l_t *set);
 int set_size_l(intset_l_t *set);
-void node_delete_l(node_l_t *node);
 
-rqtracker_l_t *new_rqtracker_l(uint32_t max_rq);
-timestamp_t *snapshot_active_l(rqtracker_l_t *rqt);
+rqtracker_l_t *rqtracker_new_l(uint32_t max_rq);
+timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
+                                         uint32_t *num_active);
+timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt);
+void rqtracker_end_update_l(rqtracker_l_t *rqt);
+timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id);
+void rqtracker_end_rq_l(rqtracker_l_t *rqt, uint32_t rq_id);
 void rqtracker_delete_l(rqtracker_l_t *rqt);
+
+#endif

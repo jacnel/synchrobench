@@ -1,3 +1,6 @@
+#ifndef LAZYMVLIST_INTSET_H
+#define LAZYMVLIST_INTSET_H
+
 /*
  * File:
  *   intset.c
@@ -20,10 +23,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
-#include "lazy.h"
+#include "linkedlist-lock.h"
 
 int set_contains_l(intset_l_t *set, val_t val, int transactional);
 int set_add_l(intset_l_t *set, val_t val, int transactional);
 int set_remove_l(intset_l_t *set, val_t val, int transactional);
 int set_rq_l(intset_l_t *set, val_t low, val_t high, int transactional);
+
+#endif
