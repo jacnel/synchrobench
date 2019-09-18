@@ -41,7 +41,7 @@ node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
     perror("malloc");
     exit(1);
   }
-  node_l->ts = (timestamp_t*)malloc(sizeof(timestamp_t) * depth);
+  node_l->ts = (timestamp_t *)malloc(sizeof(timestamp_t) * depth);
   if (node_l->ts == NULL) {
     perror("malloc");
     exit(1);
@@ -64,7 +64,7 @@ intset_l_t *set_new_l(uint32_t max_rq) {
     perror("malloc");
     exit(1);
   }
-  depth = max_rq + 1;
+  depth = max_rq + 2;
   max = new_node_l(VAL_MAX, NULL, NULL_TIMESTAMP, depth, 0);
   min = new_node_l(VAL_MIN, max, NULL_TIMESTAMP, depth, 0);
   set->head = min;
@@ -98,6 +98,10 @@ void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
     curr_edge = node->ts[curr_idx];
     next_edge = node->ts[next_idx];
 
+    /* TODO(jacnel): Deal with low number of active RQs. For instance if there
+     * is only 2 RQs, an edge that could be reclaimed could be ignored. The
+     * primary problem seems to stem from when the next edge is the newest edge.
+     */
     if (curr_edge == NULL_TIMESTAMP ||
         (curr_edge < curr_rq && next_edge <= curr_rq)) {
       for (j = 0; j < depth - 1; ++j) {
@@ -115,6 +119,19 @@ void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
     }
   }
   assert(0);
+}
+
+node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts) {
+  int i, idx;
+  uint32_t depth;
+  depth = node->depth;
+  for (i = 0; i < depth; ++i) {
+    idx = (depth + (node->newest - i)) % depth;
+    if (node->ts[idx] <= ts) {
+      return node->next[idx];
+    }
+  }
+  return NULL;
 }
 
 void node_delete_l(node_l_t *node) {
@@ -162,6 +179,7 @@ rqtracker_l_t *rqtracker_new_l(uint32_t max_rq) {
   for (i = 0; i < max_rq; ++i) {
     rqt->active[i] = NULL_TIMESTAMP;
   }
+  rqt->num_active = 0;
   INIT_LOCK(&rqt->lock);
   return rqt;
 }
@@ -172,9 +190,15 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
   timestamp_t temp;
   int curr_rq, end, i, j, k;
 
+  if (rqt->num_active == 0) {
+    *num_active = 0;
+    return NULL;
+  }
+
   end = rqt->max_rq;
   s = (timestamp_t *)malloc(sizeof(timestamp_t) * rqt->max_rq);
-  LOCK(&rqt->lock);
+  // LOCK(&rqt->lock);
+  /* TODO(jacnel): Optimize taking a snapshot of the active RQs. */
   for (i = 0; i < rqt->max_rq; ++i) {
     curr_rq = rqt->active[i];
     if (curr_rq == NULL_TIMESTAMP) {
@@ -192,24 +216,26 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
     }
   }
   *num_active = end;
-  UNLOCK(&rqt->lock);
+  // UNLOCK(&rqt->lock);
   return s;
 }
 
 timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
   LOCK(&rqt->lock);
   ++(rqt->ts);
-  assert(rqt->ts < MAX_TIMESTAMP);
   return rqt->ts;
 }
 
-void rqtracker_end_update_l(rqtracker_l_t *rqt) { UNLOCK(&rqt->lock); }
+void rqtracker_end_update_l(rqtracker_l_t *rqt) {
+  UNLOCK(&rqt->lock);
+}
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
   timestamp_t ts;
   LOCK(&rqt->lock);
   ts = rqt->ts;
   rqt->active[rq_id] = ts;
+  ++(rqt->num_active);
   UNLOCK(&rqt->lock);
   return ts;
 }
@@ -217,6 +243,7 @@ timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
 void rqtracker_end_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
   LOCK(&rqt->lock);
   rqt->active[rq_id] = NULL_TIMESTAMP;
+  --(rqt->num_active);
   UNLOCK(&rqt->lock);
 }
 

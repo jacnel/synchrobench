@@ -12,7 +12,7 @@
  * Copyright (c) 2009-2010.
  *
  * intset.c is part of Synchrobench
- * 
+ *
  * Synchrobench is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation, version 2
@@ -28,6 +28,7 @@
 int set_contains_l(intset_l_t *set, val_t val, int transactional);
 int set_add_l(intset_l_t *set, val_t val, int transactional);
 int set_remove_l(intset_l_t *set, val_t val, int transactional);
-int set_rq_l(intset_l_t *set, val_t low, val_t high, int transactional);
+int set_rq_l(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
+             val_t **results, uint32_t *num_results, int transactional);
 
 #endif

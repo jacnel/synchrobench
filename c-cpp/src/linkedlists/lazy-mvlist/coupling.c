@@ -102,3 +102,8 @@ int lockc_insert(intset_l_t *set, val_t val) {
   UNLOCK(&next->lock);
   return !found;
 }
+
+int lockc_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
+             val_t **results, uint32_t *num_results) {
+  return 0;
+}

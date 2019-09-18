@@ -27,6 +27,7 @@
 int lockc_delete(intset_l_t *set, val_t val);
 int lockc_find(intset_l_t *set, val_t val);
 int lockc_insert(intset_l_t *set, val_t val);
-int lockc_rq(intset_l_t *set, val_t low, val_t high);
+int lockc_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
+             val_t **results, uint32_t *num_results);
 
 #endif

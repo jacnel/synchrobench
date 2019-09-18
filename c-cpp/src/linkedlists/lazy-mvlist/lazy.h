@@ -7,15 +7,14 @@
  * Author(s):
  *   Vincent Gramoli <vincent.gramoli@epfl.ch>
  * Description:
- *   Lazy linked list implementation of an integer set based on Heller et al. algorithm
- *   "A Lazy Concurrent List-Based Set Algorithm"
- *   S. Heller, M. Herlihy, V. Luchangco, M. Moir, W.N. Scherer III, N. Shavit
- *   p.3-16, OPODIS 2005
+ *   Lazy linked list implementation of an integer set based on Heller et al.
+ * algorithm "A Lazy Concurrent List-Based Set Algorithm" S. Heller, M. Herlihy,
+ * V. Luchangco, M. Moir, W.N. Scherer III, N. Shavit p.3-16, OPODIS 2005
  *
  * Copyright (c) 2009-2010.
  *
  * lazy.c is part of Synchrobench
- * 
+ *
  * Synchrobench is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation, version 2
@@ -28,7 +27,7 @@
  */
 #include "linkedlist-lock.h"
 
-/* handling logical deletion flag */ 
+/* handling logical deletion flag */
 inline int is_marked_ref(long i);
 inline long unset_mark(long i);
 inline long set_mark(long i);
@@ -40,6 +39,7 @@ int parse_validate(node_l_t *pred, node_l_t *curr);
 int parse_find(intset_l_t *set, val_t val);
 int parse_insert(intset_l_t *set, val_t val);
 int parse_delete(intset_l_t *set, val_t val);
-int parse_rq(intset_l_t *set, val_t low, val_t high);
+int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
+             val_t **results, uint32_t *num_results);
 
 #endif

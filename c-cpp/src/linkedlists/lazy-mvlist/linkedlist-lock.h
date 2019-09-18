@@ -40,7 +40,11 @@
 #define DEFAULT_DURATION 10000
 #define DEFAULT_INITIAL 256
 #define DEFAULT_NB_THREADS 1
+#define DEFAULT_MAX_RQ 8
+#define DEFAULT_NB_RQ_THREADS 0
+#define DEFAULT_RQ_RATE 20
 #define DEFAULT_RANGE 0x7FFFFFFF
+#define DEFAULT_RQ 0
 #define DEFAULT_SEED 0
 #define DEFAULT_UPDATE 20
 #define DEFAULT_LOCKTYPE 2
@@ -99,6 +103,7 @@ typedef struct rqtracker_l {
   timestamp_t ts;
   uint32_t max_rq;
   timestamp_t *active;
+  volatile uint32_t num_active;
   volatile ptlock_t lock;
 } rqtracker_l_t;
 
@@ -111,6 +116,7 @@ node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
                      int transactional);
 void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
                          uint32_t num_active);
+node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts);
 void node_delete_l(node_l_t *node);
 
 intset_l_t *set_new_l(uint32_t max_rq);

@@ -65,8 +65,7 @@ int parse_find(intset_l_t *set, val_t val) {
 
 int parse_insert(intset_l_t *set, val_t val) {
   node_l_t *curr, *pred, *newnode;
-  timestamp_t *s;
-  timestamp_t ts;
+  timestamp_t ts, *s;
   int r, result;
   uint32_t num_active, newest;
 
@@ -82,7 +81,7 @@ int parse_insert(intset_l_t *set, val_t val) {
   if (result) {
     s = rqtracker_snapshot_active_l(set->rqt, &num_active);
     node_reclaim_edge_l(pred, s, num_active);
-    newnode = new_node_l(val, curr, NULL_TIMESTAMP, set->rqt->max_rq + 1, 0);
+    newnode = new_node_l(val, curr, NULL_TIMESTAMP, set->rqt->max_rq + 2, 0);
     newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
     newnode->ts[newnode->newest] = ts;
@@ -91,7 +90,7 @@ int parse_insert(intset_l_t *set, val_t val) {
     pred->newest = newest;
     pred->newest_next = pred->next[newest];
     rqtracker_end_update_l(set->rqt);
-  } 
+  }
   UNLOCK(&curr->lock);
   UNLOCK(&pred->lock);
   return result;
@@ -110,7 +109,7 @@ int parse_delete(intset_l_t *set, val_t val) {
   node_l_t *pred, *curr;
   timestamp_t ts, *s;
   int result;
-  uint32_t num_active, pred_newest;
+  uint32_t num_active, curr_newest, pred_newest;
 
   pred = set->head;
   curr = get_unmarked_ref(pred->newest_next);
@@ -123,12 +122,12 @@ int parse_delete(intset_l_t *set, val_t val) {
   result = (parse_validate(pred, curr) && (val == curr->val));
   if (result) {
     s = rqtracker_snapshot_active_l(set->rqt, &num_active);
-    node_reclaim_edge_l(curr, s, num_active);
     node_reclaim_edge_l(pred, s, num_active);
+    curr_newest = curr->newest;
     pred_newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
-    curr->next[curr->newest] = get_marked_ref(curr->next[curr->newest]);
-    curr->newest_next = curr->next[curr->newest];
+    curr->next[curr_newest] = get_marked_ref(curr->next[curr_newest]);
+    curr->newest_next = curr->next[curr_newest];
     pred->next[pred_newest] = get_unmarked_ref(curr->next[curr->newest]);
     pred->ts[pred_newest] = ts;
     pred->newest = pred_newest;
@@ -138,4 +137,37 @@ int parse_delete(intset_l_t *set, val_t val) {
   UNLOCK(&curr->lock);
   UNLOCK(&pred->lock);
   return result;
+}
+
+int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id, val_t **results,
+             uint32_t *num_results) {
+  node_l_t *curr;
+  timestamp_t ts;
+  val_t *r, *temp;
+  uint32_t i, limit;
+
+  limit = 1000;
+  i = 0;
+  r = (val_t *)malloc(sizeof(val_t) * limit);
+  curr = set->head;
+  ts = rqtracker_start_rq_l(set->rqt, rq_id);
+  while (curr->val < low)
+    curr = get_unmarked_ref(node_next_from_timestamp_l(curr, ts));
+  while (curr->val <= high && i < limit) {
+    r[i++] = curr->val;
+    curr = get_unmarked_ref(node_next_from_timestamp_l(curr, ts));
+    if (i == limit) {
+      temp = (val_t *)malloc(sizeof(val_t) * limit * 2);
+      for (i = 0; i < limit; ++i) {
+        temp[i] = r[i];
+      }
+      free(r);
+      limit = limit * 2;
+      r = temp;
+    }
+  }
+  rqtracker_end_rq_l(set->rqt, rq_id);
+  *results = r;
+  *num_results = i;
+  return (i > 0);
 }
