@@ -24,8 +24,9 @@
 #include "linkedlist-lock.h"
 
 node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
-                     int transactional) {
+                     ptr_bank_l_t *ptr_bank, int transactional) {
   node_l_t *node_l;
+  next_vec_l_t next_vec;
   int i;
 
   node_l = (node_l_t *)malloc(sizeof(node_l_t));
@@ -36,20 +37,9 @@ node_l_t *new_node_l(val_t val, node_l_t *next, timestamp_t ts, uint32_t depth,
   node_l->val = val;
   node_l->depth = depth;
   node_l->newest = 0;
-  node_l->next = (node_l_t **)malloc(sizeof(node_l_t *) * depth);
-  if (node_l->next == NULL) {
-    perror("malloc");
-    exit(1);
-  }
-  node_l->ts = (timestamp_t *)malloc(sizeof(timestamp_t) * depth);
-  if (node_l->ts == NULL) {
-    perror("malloc");
-    exit(1);
-  }
-  for (i = 0; i < depth; ++i) {
-    node_l->next[i] = (i == 0 ? next : NULL);
-    node_l->ts[i] = (i == 0 ? ts : NULL_TIMESTAMP);
-  }
+  ptr_bank_init_node_l(ptr_bank, node_l);
+  node_l->next[node_l->newest] = next;
+  node_l->ts[node_l->newest] = ts;
   node_l->newest_next = next;
   INIT_LOCK(&node_l->lock);
   return node_l;
@@ -164,6 +154,41 @@ int set_size_l(intset_l_t *set) {
   return size;
 }
 
+ptr_bank_l_t *ptr_bank_new_l(uint32_t size, uint32_t capacity,
+                             uint32_t num_slots) {
+  ptr_bank_l_t *ptr_bank;
+  next_vec_l_t *curr_next_vec;
+  int i;
+
+  // TODO(jacnel): Check mallocs are successful.
+  ptr_bank = (ptr_bank_l_t *)malloc(sizeof(ptr_bank_l_t));
+  ptr_bank->capacity = capacity;
+  ptr_bank->curr = 0;
+  ptr_bank->next = (node_l_t **)malloc(sizeof(node_l_t *) * capacity);
+  ptr_bank->ts = (timestamp_t *)malloc(sizeof(timestamp_t) * capacity);
+  INIT_LOCK(&ptr_bank->lock);
+  for (i = 0; i < capacity; ++i) {
+    curr_next->next[j] = NULL;
+    curr_next->ts[j] = NULL_TIMESTAMP;
+  }
+
+  return ptr_bank;
+}
+
+void *ptr_bank_init_node_l(ptr_bank_l_t *ptr_bank, node_l_t *node,
+                           uint32_t slot_id) {
+  assert(slot_id < ptr_bank->num_slots);
+  assert(ptr_bank->curr + node->depth < ptr_bank->capacity);
+  LOCK(&ptr_bank->lock);
+  node->next = ptr_bank->next[ptr_bank->curr];
+  node->ts = ptr_bank->ts[ptr_bank->curr];
+  ptr_bank->curr += node->depth;
+  if (ptr_bank->curr >= ptr_bank->capacity) {
+    // TODO(jacnel): Increase capacity for the current slot.
+  }
+  UNLOCK(&ptr_bank->lock);
+}
+
 rqtracker_l_t *rqtracker_new_l(uint32_t max_rq) {
   rqtracker_l_t *rqt;
   int i;
@@ -222,9 +247,7 @@ timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
   return rqt->ts;
 }
 
-void rqtracker_end_update_l(rqtracker_l_t *rqt) {
-  UNLOCK(&rqt->lock);
-}
+void rqtracker_end_update_l(rqtracker_l_t *rqt) { UNLOCK(&rqt->lock); }
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
   timestamp_t ts;

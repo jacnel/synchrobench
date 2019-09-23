@@ -99,6 +99,19 @@ typedef struct node_l {
   timestamp_t *ts;
 } node_l_t;
 
+struct next_vec_l {
+  node_l_t **next;
+  timestamp_t *ts;
+} next_vec_l_t;
+
+typedef struct ptr_bank_l {
+  uint32_t capacity;
+  uint32_t curr;
+  node_l_t **next;
+  timestamp_t *ts;
+  volatile ptlock_t lock;
+} ptr_bank_l_t;
+
 typedef struct rqtracker_l {
   timestamp_t ts;
   uint32_t max_rq;
@@ -122,6 +135,10 @@ void node_delete_l(node_l_t *node);
 intset_l_t *set_new_l(uint32_t max_rq);
 void set_delete_l(intset_l_t *set);
 int set_size_l(intset_l_t *set);
+
+ptr_bank_l_t *ptr_bank_new_l(uint32_t size, uint32_t capacity,
+                             uint32_t num_slots);
+next_vec_l_t ptr_bank_get_next_pair_l(ptr_bank_l_t* ptr_bank, uint32_t slot_id);
 
 rqtracker_l_t *rqtracker_new_l(uint32_t max_rq);
 timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
