@@ -119,6 +119,7 @@ typedef struct thread_data {
   unsigned int seed;
   intset_l_t *set;
   barrier_t *barrier;
+  timeing_l_t timing;
 } thread_data_t;
 
 int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
@@ -145,6 +146,8 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
 void *test(void *data) {
   int op, num_results, last = -1;
   val_t low, high, temp, *results, val = 0;
+  clock_t start, end;
+  uint32_t duration;
 
   thread_data_t *d = (thread_data_t *)data;
 
@@ -159,23 +162,31 @@ void *test(void *data) {
     if (op == UPDATE) {  // update
       if (last < 0) {    // add
         val = rand_range_re(&d->seed, d->range);
-        if (set_add_l(d->set, val, TRANSACTIONAL)) {
+        start = clock();
+        if (set_add_l(d->set, val, TRANSACTIONAL, &d->timing.insert_crit)) {
           d->nb_added++;
           last = val;
         }
+        end = clock();
         d->nb_add++;
       } else {               // remove
         if (d->alternate) {  // alternate mode
-          if (set_remove_l(d->set, last, TRANSACTIONAL)) {
+          start = clock();
+          if (set_remove_l(d->set, last, TRANSACTIONAL,
+                           &d->timing.remove_crit)) {
             d->nb_removed++;
           }
+          end = clock();
           last = -1;
         } else {
           val = rand_range_re(&d->seed, d->range);
-          if (set_remove_l(d->set, val, TRANSACTIONAL)) {
+          start = clock();
+          if (set_remove_l(d->set, val, TRANSACTIONAL,
+                           &d->timing.remove_crit)) {
             d->nb_removed++;
             last = -1;
           }
+          end = clock();
         }
         d->nb_remove++;
       }
@@ -187,10 +198,12 @@ void *test(void *data) {
         high = low;
         low = temp;
       }
+      start = clock();
       if (set_rq_l(d->set, low, high, d->tid, &results, &num_results,
                    TRANSACTIONAL)) {
         d->nb_successful_rqs++;
       }
+      end = clock();
       d->nb_rqs++;
     } else {  // read
       if (d->alternate) {
@@ -213,9 +226,23 @@ void *test(void *data) {
       } else
         val = rand_range_re(&d->seed, d->range);
 
+      start = clock();
       if (set_contains_l(d->set, val, TRANSACTIONAL)) d->nb_found++;
       d->nb_contains++;
+      end = clock();
     }
+
+    duration = (end - start);
+    if (op == CONTAINS) {
+      d->timing.read_dur += duration;
+    } else if (op == RANGE_QUERY) {
+      d->timing.rq_dur += duration;
+    } else if (op == UPDATE && last < 0) {
+      d->timing.remove_dur += duration;
+    } else {
+      d->timing.insert_dur += duration;
+    }
+    d->timing.total_dur += duration;
 
     /* Is the next op an update? */
     if (d->effective && d->tid < 0) {  // a failed remove/add is a read-only tx
@@ -262,10 +289,10 @@ int main(int argc, char **argv) {
   int i, c, size;
   val_t last = 0;
   val_t val = 0;
-  unsigned long reads, effreads, rqs, effrqs, updates, effupds, aborts,
-      aborts_locked_read, aborts_locked_write, aborts_validate_read,
-      aborts_validate_write, aborts_validate_commit, aborts_invalid_memory,
-      max_retries;
+  unsigned long reads, effreads, rqs, effrqs, updates, effupds, inserts,
+      effinserts, removes, effremoves, aborts, aborts_locked_read,
+      aborts_locked_write, aborts_validate_read, aborts_validate_write,
+      aborts_validate_commit, aborts_invalid_memory, max_retries;
   thread_data_t *data;
   pthread_t *threads;
   pthread_attr_t attr;
@@ -285,10 +312,13 @@ int main(int argc, char **argv) {
   int alternate = DEFAULT_ALTERNATE;
   int effective = DEFAULT_EFFECTIVE;
   sigset_t block_set;
+  uint64_t read_dur, insert_dur, insert_crit, remove_dur, remove_crit, rq_dur,
+      total_dur;
 
   while (1) {
     i = 0;
-    c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:x:R:q:m:R:", long_options, &i);
+    c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:x:R:q:m:R:", long_options,
+                    &i);
 
     if (c == -1) break;
 
@@ -443,7 +473,7 @@ int main(int argc, char **argv) {
   i = 0;
   while (i < initial) {
     val = (rand() % range) + 1;
-    if (set_add_l(set, val, unit_tx)) {
+    if (set_add_l(set, val, unit_tx, &insert_crit)) {
       last = val;
       i++;
     }
@@ -485,6 +515,13 @@ int main(int argc, char **argv) {
     data[i].seed = rand();
     data[i].set = set;
     data[i].barrier = &barrier;
+    data[i].timing.read_dur = 0;
+    data[i].timing.insert_dur = 0;
+    data[i].timing.insert_crit = 0;
+    data[i].timing.remove_dur = 0;
+    data[i].timing.remove_crit = 0;
+    data[i].timing.rq_dur = 0;
+    data[i].timing.total_dur = 0;
     if (pthread_create(&threads[i], &attr, test, (void *)(&data[i])) != 0) {
       fprintf(stderr, "Error creating thread\n");
       exit(1);
@@ -530,6 +567,17 @@ int main(int argc, char **argv) {
   effrqs = 0;
   updates = 0;
   effupds = 0;
+  inserts = 0;
+  effinserts = 0;
+  removes = 0;
+  effremoves = 0;
+  read_dur = 0;
+  insert_dur = 0;
+  insert_crit = 0;
+  remove_dur = 0;
+  remove_crit = 0;
+  rq_dur = 0;
+  total_dur = 0;
   max_retries = 0;
   for (i = 0; i < nb_threads; i++) {
     printf("Thread %d\n", i);
@@ -563,6 +611,19 @@ int main(int argc, char **argv) {
     effrqs += data[i].nb_successful_rqs;
     updates += (data[i].nb_add + data[i].nb_remove);
     effupds += data[i].nb_removed + data[i].nb_added;
+    inserts += data[i].nb_add;
+    effinserts += data[i].nb_added;
+    removes += data[i].nb_remove;
+    effremoves += data[i].nb_removed;
+
+    /* Timing */
+    read_dur += data[i].timing.read_dur;
+    insert_dur += data[i].timing.insert_dur;
+    insert_crit += data[i].timing.insert_crit;
+    remove_dur += data[i].timing.remove_dur;
+    remove_crit += data[i].timing.remove_crit;
+    rq_dur += data[i].timing.rq_dur;
+    total_dur += data[i].timing.total_dur;
 
     // size += data[i].diff;
     size += data[i].nb_added - data[i].nb_removed;
@@ -579,6 +640,8 @@ int main(int argc, char **argv) {
     printf("  #contains   : %lu (%f / s)\n", reads, reads * 1000.0 / duration);
   } else
     printf("%lu (%f / s)\n", reads, reads * 1000.0 / duration);
+  printf("  latency (us): %4.2f\n",
+         ((read_dur * MILLION) / CLOCKS_PER_SEC) / (double)reads);
 
   printf("#rq txs       : ");
   if (effective) {
@@ -587,6 +650,8 @@ int main(int argc, char **argv) {
   } else {
     printf("%lu (%f / s)\n", rqs, rqs * 1000.0 / duration);
   }
+  printf("  latency (us): %4.2f\n",
+         ((rq_dur * MILLION) / CLOCKS_PER_SEC) / (double)rqs);
 
   printf("#eff. upd rate: %f \n", 100.0 * effupds / (effupds + effreads));
 
@@ -597,6 +662,16 @@ int main(int argc, char **argv) {
            updates * 1000.0 / duration);
   } else
     printf("%lu (%f / s)\n", updates, updates * 1000.0 / duration);
+
+  /* Insert and remove timing */
+  printf("total latency :\n");
+  printf("  insert (us) : %4.2f\n",
+         ((insert_dur * MILLION) / CLOCKS_PER_SEC) / (double)inserts);
+  printf("  remove (us) : %4.2f\n",
+         ((remove_dur * MILLION) / CLOCKS_PER_SEC) / (double)removes);
+  printf("custom latency: "XSTR(TIMING)"\n");
+  printf("  insert (us) : %4.2f\n", ((insert_crit * MILLION) / CLOCKS_PER_SEC) / (double)effinserts);
+  printf("  remove (us) : %4.2f\n", ((remove_crit * MILLION) / CLOCKS_PER_SEC) / (double)effremoves);
 
   printf("#aborts       : %lu (%f / s)\n", aborts, aborts * 1000.0 / duration);
   printf("  #lock-r     : %lu (%f / s)\n", aborts_locked_read,

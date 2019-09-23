@@ -1,8 +1,8 @@
-ROOT = ../../..
+ROOT = ../../../../..
 
 include $(ROOT)/common/Makefile.common
 
-BINS = $(BINDIR)/$(LOCK)-lazy-mvlist-unsafe
+BINS = $(BINDIR)/$(LOCK)-lazy-list-unsafe
 CFLAGS += -std=gnu89
 
 .PHONY:	all clean

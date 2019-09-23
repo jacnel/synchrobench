@@ -98,6 +98,10 @@ void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
     curr_edge = node->ts[curr_idx];
     next_edge = node->ts[next_idx];
 
+    /* TODO(jacnel): Deal with low number of active RQs. For instance if there
+     * is only 2 RQs, an edge that could be reclaimed could be ignored. The
+     * primary problem seems to stem from when the next edge is the newest edge.
+     */
     if (curr_edge == NULL_TIMESTAMP ||
         (curr_edge < curr_rq && next_edge <= curr_rq)) {
       for (j = 0; j < depth - 1; ++j) {
