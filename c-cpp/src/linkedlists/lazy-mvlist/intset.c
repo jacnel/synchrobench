@@ -22,34 +22,69 @@
  */
 
 #include "intset.h"
-#include "coupling.h"
 #include "lazy.h"
 
-int set_contains_l(intset_l_t *set, val_t val, int transactional) {
-  if (transactional == 2)
-    return parse_find(set, val);
-  else
-    return lockc_find(set, val);
+intset_l_t *set_new_l(uint32_t max_rq, uint32_t capacity, uint32_t num_slots) {
+  intset_l_t *set;
+  node_l_t *min, *max;
+  int depth;
+
+  if ((set = (intset_l_t *)malloc(sizeof(intset_l_t))) == NULL) {
+    perror("malloc");
+    exit(1);
+  }
+  depth = max_rq + 2;
+  set->arena = arena_new_l(capacity, num_slots);
+  max = new_node_l(VAL_MAX, depth);
+  arena_init_node_l(set->arena, max, NULL, NULL_TIMESTAMP, 0);
+  min = new_node_l(VAL_MIN, depth);
+  arena_init_node_l(set->arena, min, max, NULL_TIMESTAMP, 0);
+  set->head = min;
+  set->rqt = rqtracker_new_l(max_rq);
+
+  return set;
 }
 
-int set_add_l(intset_l_t *set, val_t val, int transactional) {
-  if (transactional == 2)
-    return parse_insert(set, val);
-  else
-    return lockc_insert(set, val);
+// TODO(jacnel): Delete all versions, not just the newest.
+void set_delete_l(intset_l_t *set) {
+  node_l_t *node, *next;
+
+  node = set->head;
+  while (node != NULL) {
+    next = node->next[node->newest];
+    node_delete_l(node);
+    node = next;
+  }
+  arena_delete_l(set->arena);
+  free(set);
 }
 
-int set_remove_l(intset_l_t *set, val_t val, int transactional) {
-  if (transactional == 2)
-    return parse_delete(set, val);
-  else
-    return lockc_delete(set, val);
+int set_size_l(intset_l_t *set) {
+  int size = 0;
+  node_l_t *node;
+
+  /* We have at least 2 elements */
+  node = set->head->newest_next;
+  while (node->newest_next != NULL) {
+    size++;
+    node = node->newest_next;
+  }
+
+  return size;
 }
+
+
+
+
+int set_contains_l(intset_l_t *set, val_t val) { return parse_find(set, val); }
+
+int set_add_l(intset_l_t *set, val_t val, uint32_t id) {
+  return parse_insert(set, val, id);
+}
+
+int set_remove_l(intset_l_t *set, val_t val) { return parse_delete(set, val); }
 
 int set_rq_l(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
-             val_t **results, uint32_t *num_results, int transactional) {
-  if (transactional == 2)
-    return parse_rq(set, low, high, rq_id, results, num_results);
-  else
-    return lockc_rq(set, low, high, rq_id, results, num_results);
+             val_t **results, uint32_t *num_results) {
+  return parse_rq(set, low, high, rq_id, results, num_results);
 }
