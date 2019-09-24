@@ -1,0 +1,19 @@
+#! /bin/bash
+
+LISTS="${MVL_UNSAFE} ${MVL_MVLIST}"
+SIZES="1024 16384"
+THREADS="1 8 16 24 32 40 48"
+UPDATE_RATES="0 10 20"
+MAX_RQS="8"
+RQ_THREADS="0 1 2 3 4 5 6 7 8"
+RQ_RATES="0 10 20 50 100"
+NUMA_FLAGS="-m1 -N1"
+DURATION=2000
+
+cd $MVL_SRC_DIR
+make -s
+cd $MVL_EXP_DIR
+
+cd $MVL_COMP_DIR/lazy-list-unsafe
+make -s
+cd $MVL_EXP_DIR

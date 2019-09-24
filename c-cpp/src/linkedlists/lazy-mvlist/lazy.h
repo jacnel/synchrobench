@@ -25,7 +25,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#include "linkedlist-lock.h"
+#include "intset.h"
 
 /* handling logical deletion flag */
 inline int is_marked_ref(long i);
@@ -37,7 +37,7 @@ inline node_l_t *get_marked_ref(node_l_t *n);
 /* linked list accesses */
 int parse_validate(node_l_t *pred, node_l_t *curr);
 int parse_find(intset_l_t *set, val_t val);
-int parse_insert(intset_l_t *set, val_t val);
+int parse_insert(intset_l_t *set, val_t val, uint32_t id);
 int parse_delete(intset_l_t *set, val_t val);
 int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
              val_t **results, uint32_t *num_results);

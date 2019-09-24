@@ -63,7 +63,7 @@ int parse_find(intset_l_t *set, val_t val) {
   return ((curr->val == val) && !is_marked_ref((long)curr));
 }
 
-int parse_insert(intset_l_t *set, val_t val) {
+int parse_insert(intset_l_t *set, val_t val, uint32_t tid) {
   node_l_t *curr, *pred, *newnode;
   timestamp_t ts, *s;
   int r, result;
@@ -80,8 +80,9 @@ int parse_insert(intset_l_t *set, val_t val) {
   result = (parse_validate(pred, curr) && (curr->val != val));
   if (result) {
     s = rqtracker_snapshot_active_l(set->rqt, &num_active);
-    node_reclaim_edge_l(pred, s, num_active);
-    newnode = new_node_l(val, curr, NULL_TIMESTAMP, set->rqt->max_rq + 2, 0);
+    node_retire_edge_l(pred, s, num_active);
+    newnode = new_node_l(val, set->rqt->max_rq + 2);
+    arena_init_node_l(set->arena, newnode, curr, NULL_TIMESTAMP, tid);
     newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
     newnode->ts[newnode->newest] = ts;
@@ -122,7 +123,7 @@ int parse_delete(intset_l_t *set, val_t val) {
   result = (parse_validate(pred, curr) && (val == curr->val));
   if (result) {
     s = rqtracker_snapshot_active_l(set->rqt, &num_active);
-    node_reclaim_edge_l(pred, s, num_active);
+    node_retire_edge_l(pred, s, num_active);
     curr_newest = curr->newest;
     pred_newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
@@ -139,8 +140,8 @@ int parse_delete(intset_l_t *set, val_t val) {
   return result;
 }
 
-int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id, val_t **results,
-             uint32_t *num_results) {
+int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
+             val_t **results, uint32_t *num_results) {
   node_l_t *curr;
   timestamp_t ts;
   val_t *r, *temp;

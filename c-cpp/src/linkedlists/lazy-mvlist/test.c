@@ -97,6 +97,7 @@ typedef struct thread_data {
   long range;
   int update;
   int rq_rate;
+  int rq_threads;
   int unit_tx;
   int alternate;
   int effective;
@@ -124,7 +125,7 @@ typedef struct thread_data {
 int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
   int r, op;
   r = (rand_range_re(seed, 100) - 1);
-  if (tid < 0) {
+  if (tid >= 0) {
     if (r < update) {
       op = UPDATE;
     } else {
@@ -152,27 +153,27 @@ void *test(void *data) {
   barrier_cross(d->barrier);
 
   /* Is the first op an update? */
-  op = get_rand_op(&d->seed, d->update, d->rq_rate, d->tid);
+  op = get_rand_op(&d->seed, d->update, d->rq_rate, (d->tid - d->rq_threads));
 
   while (stop == 0) {
     /* Postive tid threads perform 100% range queries */
     if (op == UPDATE) {  // update
       if (last < 0) {    // add
         val = rand_range_re(&d->seed, d->range);
-        if (set_add_l(d->set, val, TRANSACTIONAL)) {
+        if (set_add_l(d->set, val, d->tid)) {
           d->nb_added++;
           last = val;
         }
         d->nb_add++;
       } else {               // remove
         if (d->alternate) {  // alternate mode
-          if (set_remove_l(d->set, last, TRANSACTIONAL)) {
+          if (set_remove_l(d->set, last)) {
             d->nb_removed++;
           }
           last = -1;
         } else {
           val = rand_range_re(&d->seed, d->range);
-          if (set_remove_l(d->set, val, TRANSACTIONAL)) {
+          if (set_remove_l(d->set, val)) {
             d->nb_removed++;
             last = -1;
           }
@@ -187,8 +188,7 @@ void *test(void *data) {
         high = low;
         low = temp;
       }
-      if (set_rq_l(d->set, low, high, d->tid, &results, &num_results,
-                   TRANSACTIONAL)) {
+      if (set_rq_l(d->set, low, high, d->tid, &results, &num_results)) {
         d->nb_successful_rqs++;
       }
       d->nb_rqs++;
@@ -213,12 +213,13 @@ void *test(void *data) {
       } else
         val = rand_range_re(&d->seed, d->range);
 
-      if (set_contains_l(d->set, val, TRANSACTIONAL)) d->nb_found++;
+      if (set_contains_l(d->set, val)) d->nb_found++;
       d->nb_contains++;
     }
 
     /* Is the next op an update? */
-    if (d->effective && d->tid < 0) {  // a failed remove/add is a read-only tx
+    if (d->effective && (d->tid - d->rq_threads) >=
+                            0) {  // a failed remove/add is a read-only tx
       if ((100 * (d->nb_added + d->nb_removed)) <
           (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
         op = UPDATE;
@@ -256,6 +257,7 @@ int main(int argc, char **argv) {
       {"seed", required_argument, NULL, 'S'},
       {"update-rate", required_argument, NULL, 'u'},
       {"unit-tx", required_argument, NULL, 'x'},
+      {"capacity", required_argument, NULL, 'c'},
       {NULL, 0, NULL, 0}};
 
   intset_l_t *set;
@@ -284,11 +286,13 @@ int main(int argc, char **argv) {
   int unit_tx = DEFAULT_LOCKTYPE;
   int alternate = DEFAULT_ALTERNATE;
   int effective = DEFAULT_EFFECTIVE;
+  int capacity = -1;
   sigset_t block_set;
 
   while (1) {
     i = 0;
-    c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:x:R:q:m:R:", long_options, &i);
+    c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:x:R:q:m:R:c:", long_options,
+                    &i);
 
     if (c == -1) break;
 
@@ -334,10 +338,15 @@ int main(int argc, char **argv) {
 	     "        Use lock-based algorithm\n"
 	     "        1 = lock-coupling,\n"
 	     "        2 = lazy algorithm\n"
+	     "  -c, --capacity <int>\n"
+	     "        Number of preallocated pointers and timestamps (default=" XSTR(DEFAULT_SEED) ")\n"
 	     );
         exit(0);
       case 'A':
         alternate = 1;
+        break;
+      case 'c':
+        capacity = atoi(optarg);
         break;
       case 'f':
         effective = atoi(optarg);
@@ -396,6 +405,10 @@ int main(int argc, char **argv) {
   assert(max_rq_threads > 0);
   assert(nb_rq_threads <= max_rq_threads);
 
+  if (capacity < 0) {
+    capacity = initial * 2 * (max_rq_threads + 2);
+  }
+
   printf("Set type     : lazy linked list\n");
   printf("Length       : %d\n", duration);
   printf("Initial size : %d\n", initial);
@@ -431,7 +444,7 @@ int main(int argc, char **argv) {
   else
     srand(seed);
 
-  set = set_new_l(max_rq_threads);
+  set = set_new_l(max_rq_threads, capacity, nb_threads);
 
   stop = 0;
 
@@ -443,7 +456,7 @@ int main(int argc, char **argv) {
   i = 0;
   while (i < initial) {
     val = (rand() % range) + 1;
-    if (set_add_l(set, val, unit_tx)) {
+    if (set_add_l(set, val, 0)) {
       last = val;
       i++;
     }
@@ -457,12 +470,12 @@ int main(int argc, char **argv) {
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
     printf("Creating thread %d\n", i);
-    data[i].tid = (i < nb_rq_threads ? i : -1);
+    data[i].tid = i;
     data[i].first = last;
     data[i].range = range;
     data[i].update = update;
     data[i].rq_rate = rq_rate;
-    data[i].alternate = alternate;
+    data[i].rq_threads = nb_rq_threads;
     data[i].unit_tx = unit_tx;
     data[i].alternate = alternate;
     data[i].effective = effective;
