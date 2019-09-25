@@ -390,8 +390,6 @@ int main(int argc, char **argv) {
   assert(update >= 0 && update <= 100);
   assert(rq_rate >= 0 && rq_rate <= 100);
   assert(nb_rq_threads >= 0);
-  assert(max_rq_threads > 0);
-  assert(nb_rq_threads <= max_rq_threads);
 
   printf("Set type     : lazy linked list\n");
   printf("Length       : %d\n", duration);

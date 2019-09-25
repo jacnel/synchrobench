@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
   unsigned long reads, effreads, rqs, effrqs, updates, effupds, aborts,
       aborts_locked_read, aborts_locked_write, aborts_validate_read,
       aborts_validate_write, aborts_validate_commit, aborts_invalid_memory,
-      max_retries;
+      max_retries, ptr_count;
   thread_data_t *data;
   pthread_t *threads;
   pthread_attr_t attr;
@@ -625,6 +625,9 @@ int main(int argc, char **argv) {
   printf("  #inv-mem    : %lu (%f / s)\n", aborts_invalid_memory,
          aborts_invalid_memory * 1000.0 / duration);
   printf("Max retries   : %lu\n", max_retries);
+
+  ptr_count = set_count_used_ptrs_l(set);
+  printf("avg # ptrs    : %f\n", ptr_count / (double) size);
 
   /* Delete set */
   set_delete_l(set);

@@ -60,6 +60,25 @@ int set_size_l(intset_l_t *set) {
   return size;
 }
 
+long set_count_used_ptrs_l(intset_l_t *set) {
+  long count;
+  int i;
+  node_l_t *node;
+  
+  count = 0;
+  node = set->head->newest_next;
+  while (node->newest_next != NULL) {
+    for (i = 0; i < node->depth; ++i) {
+      if (node->next[i] != NULL) {
+        ++count;
+      }
+    }
+    node = node->newest_next;
+  }
+  
+  return count;
+}
+
 int set_contains_l(intset_l_t *set, val_t val) { return parse_find(set, val); }
 
 int set_add_l(intset_l_t *set, val_t val, uint32_t id) {
