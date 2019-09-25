@@ -15,7 +15,11 @@ intset_l_t *set_new_l(uint32_t max_rq, uint32_t capacity, uint32_t num_slots) {
     exit(1);
   }
   depth = max_rq + 2;
+#ifdef NOPREALLOC
+  set->arena = NULL;
+#else
   set->arena = arena_new_l(capacity, num_slots);
+#endif
   max = new_node_l(VAL_MAX, depth);
   arena_init_node_l(set->arena, max, NULL, NULL_TIMESTAMP, 0);
   min = new_node_l(VAL_MIN, depth);
@@ -36,7 +40,9 @@ void set_delete_l(intset_l_t *set) {
     node_delete_l(node);
     node = next;
   }
-  arena_delete_l(set->arena);
+  if (set->arena != NULL) {
+    arena_delete_l(set->arena);
+  }
   free(set);
 }
 

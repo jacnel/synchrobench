@@ -74,17 +74,26 @@ arena_l_t *arena_new_l(uint32_t capacity, uint32_t num_slots) {
 
 void arena_init_node_l(arena_l_t *arena, node_l_t *node, node_l_t *next,
                        timestamp_t ts, uint32_t slot_id) {
-  assert(slot_id < arena->num_slots);
-  assert(arena->curr[slot_id] + node->depth < arena->capacity[slot_id]);
-  node->next = &arena->next[slot_id][arena->curr[slot_id]];
-  node->next[node->newest] = next;
-  node->newest_next = next;
-  node->ts = &arena->ts[slot_id][arena->curr[slot_id]];
-  node->ts[node->newest] = ts;
-  arena->curr[slot_id] += node->depth;
-  if (arena->curr[slot_id] >= arena->capacity[slot_id]) {
-    // TODO(jacnel): Increase capacity for the current slot.
-    printf("WARNING: Pointer bank capacity reached.\n");
+  /* If there is no arena, then allocate on demand. */
+  if (arena == NULL) {
+    node->next = (node_l_t **)malloc(sizeof(node_l_t *) * node->depth);
+    node->ts = (timestamp_t *)malloc(sizeof(timestamp_t) * node->depth);
+    node->next[node->newest] = next;
+    node->ts[node->newest] = ts;
+    node->newest_next = next;
+  } else {
+    assert(slot_id < arena->num_slots);
+    assert(arena->curr[slot_id] + node->depth < arena->capacity[slot_id]);
+    node->next = &arena->next[slot_id][arena->curr[slot_id]];
+    node->next[node->newest] = next;
+    node->newest_next = next;
+    node->ts = &arena->ts[slot_id][arena->curr[slot_id]];
+    node->ts[node->newest] = ts;
+    arena->curr[slot_id] += node->depth;
+    if (arena->curr[slot_id] >= arena->capacity[slot_id]) {
+      // TODO(jacnel): Increase capacity for the current slot.
+      printf("WARNING: Pointer bank capacity reached.\n");
+    }
   }
 }
 

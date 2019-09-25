@@ -5,6 +5,14 @@ include $(ROOT)/common/Makefile.common
 BINS = $(BINDIR)/$(LOCK)-lazy-mvlist
 CFLAGS += -std=gnu89
 
+ifeq ($(NOPREALLOC), TRUE)
+	CFLAGS += -DNOPREALLOC
+endif
+
+ifeq ($(PAD), TRUE)
+	CFLAGS += -DPAD
+endif
+
 .PHONY:	all clean
 
 all:	main

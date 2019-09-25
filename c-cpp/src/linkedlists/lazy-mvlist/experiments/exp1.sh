@@ -14,9 +14,9 @@ NUMA_FLAGS="--interleave=all"
 DURATION=2000
 
 cd $MVL_SRC_DIR
-make -s
+make -s NOPREALLOC=TRUE
 cd $MVL_EXP_DIR
 
 cd $MVL_COMP_DIR/lazy-list-unsafe
-make -s
+make -s 
 cd $MVL_EXP_DIR
