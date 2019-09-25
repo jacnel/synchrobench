@@ -24,6 +24,8 @@
  */
 
 #include "lazy.h"
+#include "node.h"
+#include "rqtracker.h"
 
 inline int is_marked_ref(long i) { return (int)(i &= LONG_MIN + 1); }
 

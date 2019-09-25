@@ -1,7 +1,7 @@
 #! /bin/bash
 
 # This experiment measures throughput of two different sizes. All threads are pinned to NUMA 0.
-# Only a maximum of 48 threads are used to ensure that all threads are in the same NUMA zone.
+# Only a maximum of 48 threads are used to ensure that all threads are in the same NUMA zone for the target machine, which is a four NUMA, 96-core (192-thread) Intel machine.
 
 LISTS="${MVL_UNSAFE} ${MVL_MVLIST}"
 SIZES="256 16384"

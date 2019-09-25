@@ -25,7 +25,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#include "intset.h"
+#include "mvl.h"
 
 /* handling logical deletion flag */
 inline int is_marked_ref(long i);

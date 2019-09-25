@@ -406,7 +406,7 @@ int main(int argc, char **argv) {
   assert(nb_rq_threads <= max_rq_threads);
 
   if (capacity < 0) {
-    capacity = initial * 2 * (max_rq_threads + 2);
+    capacity = initial * 1000 * (max_rq_threads + 2);
   }
 
   printf("Set type     : lazy linked list\n");

@@ -66,4 +66,40 @@ typedef uint64_t timestamp_t;
 #define MIN_TIMESTAMP 1
 #define MAX_TIMESTAMP UINT64_MAX
 
+/* Keeps a pointer to the newest next for better performance. */
+typedef struct node_l {
+  val_t val;
+  struct node_l *newest_next;
+  volatile ptlock_t lock;
+  uint32_t depth;
+  uint32_t newest;
+  struct node_l **next;
+  timestamp_t *ts;
+#ifdef PAD
+  char padding[48];
+#endif
+} node_l_t;
+
+typedef struct arena_l {
+  uint32_t num_slots;
+  uint32_t *capacity;
+  uint32_t *curr;
+  node_l_t ***next;
+  timestamp_t **ts;
+} arena_l_t;
+
+typedef struct rqtracker_l {
+  timestamp_t ts;
+  uint32_t max_rq;
+  timestamp_t *active;
+  volatile uint32_t num_active;
+  volatile ptlock_t lock;
+} rqtracker_l_t;
+
+typedef struct intset_l {
+  node_l_t *head;
+  rqtracker_l_t *rqt;
+  arena_l_t *arena;
+} intset_l_t;
+
 #endif

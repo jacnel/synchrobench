@@ -4,14 +4,6 @@
 #include "mvl.h"
 #include "node.h"
 
-typedef struct arena_l {
-  uint32_t num_slots;
-  uint32_t *capacity;
-  uint32_t *curr;
-  node_l_t ***next;
-  timestamp_t **ts;
-} arena_l_t;
-
 arena_l_t *arena_new_l(uint32_t capacity, uint32_t num_slots);
 void arena_init_node_l(arena_l_t *arena, node_l_t *node, node_l_t *next,
                        timestamp_t ts, uint32_t slot_id);

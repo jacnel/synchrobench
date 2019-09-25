@@ -18,7 +18,7 @@ node_l_t *new_node_l(val_t val, uint32_t depth) {
 }
 
 void node_retire_edge_l(node_l_t *node, timestamp_t *active,
-                         uint32_t num_active) {
+                        uint32_t num_active) {
   timestamp_t curr_rq, curr_edge, next_edge;
   int a, i, j, curr_idx, next_idx, new_idx, prev_idx;
   uint32_t depth, newest;
