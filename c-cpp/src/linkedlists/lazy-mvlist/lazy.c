@@ -156,6 +156,23 @@ int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
   ts = rqtracker_start_rq_l(set->rqt, rq_id);
   while (curr->val < low)
     curr = get_unmarked_ref(node_next_from_timestamp_l(curr, ts));
+#ifdef COUNT_RQ
+  /* When counting RQs we assume that high - low is the number of desired
+   * elements to return */
+  while (curr->val != VAL_MAX && i < (high - low)) {
+    r[i++] = curr->val;
+    curr = get_unmarked_ref(node_next_from_timestamp_l(curr, ts));
+    if (i == limit) {
+      temp = (val_t *)malloc(sizeof(val_t) * limit * 2);
+      for (i = 0; i < limit; ++i) {
+        temp[i] = r[i];
+      }
+      free(r);
+      limit = limit * 2;
+      r = temp;
+    }
+  }
+#else
   while (curr->val <= high && i < limit) {
     r[i++] = curr->val;
     curr = get_unmarked_ref(node_next_from_timestamp_l(curr, ts));
@@ -169,6 +186,7 @@ int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
       r = temp;
     }
   }
+#endif
   rqtracker_end_rq_l(set->rqt, rq_id);
   *results = r;
   *num_results = i;
