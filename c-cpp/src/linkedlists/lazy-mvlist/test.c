@@ -22,10 +22,28 @@
  */
 
 #include "intset.h"
+#include "unsafe/intset-unsafe.h"
 
-#define UPDATE 0
-#define RANGE_QUERY 1
+#define DEFAULT_DURATION 10000
+#define DEFAULT_INITIAL 256
+#define DEFAULT_NB_THREADS 1
+#define DEFAULT_MAX_RQ 8
+#define DEFAULT_NB_RQ_THREADS 0
+#define DEFAULT_RQ_RATE 20
+#define DEFAULT_RANGE 0x7FFFFFFF
+#define DEFAULT_RQ 0
+#define DEFAULT_SEED 0
+#define DEFAULT_UPDATE 20
+#define DEFAULT_LOCKTYPE 2
+#define DEFAULT_ALTERNATE 0
+#define DEFAULT_EFFECTIVE 1
+#define DEFAULT_CAPACITY 1000
+#define DEFAULT_RQ_LEN 100
+
+#define INSERT 0
+#define REMOVE 1
 #define CONTAINS 2
+#define RANGE_QUERY 3
 
 typedef struct barrier {
   pthread_cond_t complete;
@@ -91,9 +109,13 @@ inline long rand_range_re(unsigned int *seed, long r) {
 }
 long rand_range_re(unsigned int *seed, long r);
 
+typedef union set {
+  intset_l_t *safe;
+  intset_unsafe_l_t *unsafe;
+} set_t;
+
 typedef struct thread_data {
   int tid;
-  val_t first;
   long range;
   int update;
   int rq_rate;
@@ -101,6 +123,7 @@ typedef struct thread_data {
   int unit_tx;
   int alternate;
   int effective;
+  int rq_len;
   unsigned long nb_add;
   unsigned long nb_added;
   unsigned long nb_remove;
@@ -109,6 +132,7 @@ typedef struct thread_data {
   unsigned long nb_found;
   unsigned long nb_rqs;
   unsigned long nb_successful_rqs;
+  unsigned long nb_nodes_rqed;
   unsigned long nb_aborts;
   unsigned long nb_aborts_locked_read;
   unsigned long nb_aborts_locked_write;
@@ -118,7 +142,7 @@ typedef struct thread_data {
   unsigned long nb_aborts_invalid_memory;
   unsigned long max_retries;
   unsigned int seed;
-  intset_l_t *set;
+  set_t set;
   barrier_t *barrier;
 } thread_data_t;
 
@@ -127,7 +151,11 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
   r = (rand_range_re(seed, 100) - 1);
   if (tid >= 0) {
     if (r < update) {
-      op = UPDATE;
+      if (r % 2 == 0) {
+        op = INSERT;
+      } else {
+        op = REMOVE;
+      }
     } else {
       op = CONTAINS;
     }
@@ -135,7 +163,11 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
     if (r < rq_rate) {
       op = RANGE_QUERY;
     } else if (r < (update / (double)100) * (100 - (rq_rate))) {
-      op = UPDATE;
+      if (r % 2 == 0) {
+        op = INSERT;
+      } else {
+        op = REMOVE;
+      }
     } else {
       op = CONTAINS;
     }
@@ -144,7 +176,7 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
 }
 
 void *test(void *data) {
-  int op, num_results, last = -1;
+  int op, num_results;
   val_t low, high, temp, *results, val = 0;
 
   thread_data_t *d = (thread_data_t *)data;
@@ -156,64 +188,29 @@ void *test(void *data) {
   op = get_rand_op(&d->seed, d->update, d->rq_rate, (d->tid - d->rq_threads));
 
   while (stop == 0) {
-    /* Postive tid threads perform 100% range queries */
-    if (op == UPDATE) {  // update
-      if (last < 0) {    // add
-        val = rand_range_re(&d->seed, d->range);
-        if (set_add_l(d->set, val, d->tid)) {
-          d->nb_added++;
-          last = val;
-        }
-        d->nb_add++;
-      } else {               // remove
-        if (d->alternate) {  // alternate mode
-          if (set_remove_l(d->set, last)) {
-            d->nb_removed++;
-          }
-          last = -1;
-        } else {
-          val = rand_range_re(&d->seed, d->range);
-          if (set_remove_l(d->set, val)) {
-            d->nb_removed++;
-            last = -1;
-          }
-        }
-        d->nb_remove++;
+    if (op == INSERT) {  // update
+      val = rand_range_re(&d->seed, d->range);
+      if (set_add_l(d->set.safe, val, d->tid)) {
+        d->nb_added++;
       }
+      d->nb_add++;
+    } else if (op == REMOVE) {
+      val = rand_range_re(&d->seed, d->range);
+      if (set_remove_l(d->set.safe, val)) {
+        d->nb_removed++;
+      }
+      d->nb_remove++;
     } else if (op == RANGE_QUERY) {
-      low = rand_range_re(&d->seed, d->range);
-      high = rand_range_re(&d->seed, d->range);
-      if (high < low) {
-        temp = high;
-        high = low;
-        low = temp;
-      }
-      if (set_rq_l(d->set, low, high, d->tid, &results, &num_results)) {
+      low = rand_range_re(&d->seed, d->range - d->rq_len);
+      if (set_rq_l(d->set.safe, low, low + d->rq_len, d->tid, &results,
+                   &num_results)) {
         d->nb_successful_rqs++;
       }
+      d->nb_nodes_rqed += num_results;
       d->nb_rqs++;
     } else {  // read
-      if (d->alternate) {
-        if (d->update == 0) {
-          if (last < 0) {
-            val = d->first;
-            last = val;
-          } else {  // last >= 0
-            val = rand_range_re(&d->seed, d->range);
-            last = -1;
-          }
-        } else {  // update != 0
-          if (last < 0) {
-            val = rand_range_re(&d->seed, d->range);
-            // last = val;
-          } else {
-            val = last;
-          }
-        }
-      } else
-        val = rand_range_re(&d->seed, d->range);
-
-      if (set_contains_l(d->set, val)) d->nb_found++;
+      val = rand_range_re(&d->seed, d->range);
+      if (set_contains_l(d->set.safe, val)) d->nb_found++;
       d->nb_contains++;
     }
 
@@ -222,7 +219,10 @@ void *test(void *data) {
                             0) {  // a failed remove/add is a read-only tx
       if ((100 * (d->nb_added + d->nb_removed)) <
           (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
-        op = UPDATE;
+        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
+          op = INSERT;
+        else
+          op = REMOVE;
       } else {
         op = CONTAINS;
       }
@@ -232,15 +232,165 @@ void *test(void *data) {
         op = RANGE_QUERY;
       } else if ((100 * (d->nb_added + d->nb_removed)) <
                  (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
-        op = UPDATE;
+        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
+          op = INSERT;
+        else
+          op = REMOVE;
       } else {
         op = CONTAINS;
       }
     } else {  // remove/add (even failed) is considered an update
-      op = get_rand_op(&d->seed, d->update, d->rq_rate, d->tid);
+      op = get_rand_op(&d->seed, d->update, d->rq_rate,
+                       (d->tid - d->rq_threads));
     }
   }
   return NULL;
+}
+
+void *test_unsafe(void *data) {
+  int op, num_results;
+  val_t low, high, temp, *results, val = 0;
+
+  thread_data_t *d = (thread_data_t *)data;
+
+  /* Wait on barrier */
+  barrier_cross(d->barrier);
+
+  /* Is the first op an update? */
+  op = get_rand_op(&d->seed, d->update, d->rq_rate, (d->tid - d->rq_threads));
+
+  while (stop == 0) {
+    if (op == INSERT) {  // update
+      val = rand_range_re(&d->seed, d->range);
+      if (set_add_unsafe_l(d->set.unsafe, val)) {
+        d->nb_added++;
+      }
+      d->nb_add++;
+    } else if (op == REMOVE) {
+      val = rand_range_re(&d->seed, d->range);
+      if (set_remove_unsafe_l(d->set.unsafe, val)) {
+        d->nb_removed++;
+      }
+      d->nb_remove++;
+    } else if (op == RANGE_QUERY) {
+      low = rand_range_re(&d->seed, d->range - d->rq_len);
+      if (set_rq_unsafe_l(d->set.unsafe, low, low + d->rq_len, &results,
+                          &num_results)) {
+        d->nb_successful_rqs++;
+      }
+      d->nb_nodes_rqed += num_results;
+      d->nb_rqs++;
+    } else {  // read
+      val = rand_range_re(&d->seed, d->range);
+      if (set_contains_unsafe_l(d->set.unsafe, val)) d->nb_found++;
+      d->nb_contains++;
+    }
+
+    /* Is the next op an update? */
+    if (d->effective && (d->tid - d->rq_threads) >=
+                            0) {  // a failed remove/add is a read-only tx
+      if ((100 * (d->nb_added + d->nb_removed)) <
+          (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
+        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
+          op = INSERT;
+        else
+          op = REMOVE;
+      } else {
+        op = CONTAINS;
+      }
+    } else if (d->effective) {
+      if ((100 * (d->nb_rqs)) <= (d->rq_rate * (d->nb_add + d->nb_remove +
+                                                d->nb_contains + d->nb_rqs))) {
+        op = RANGE_QUERY;
+      } else if ((100 * (d->nb_added + d->nb_removed)) <
+                 (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
+        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
+          op = INSERT;
+        else
+          op = REMOVE;
+      } else {
+        op = CONTAINS;
+      }
+    } else {  // remove/add (even failed) is considered an update
+      op = get_rand_op(&d->seed, d->update, d->rq_rate,
+                       (d->tid - d->rq_threads));
+    }
+  }
+  return NULL;
+}
+
+/* Populates the data structure with a uniform distribution of values in the
+ * range. Does so in reverse order to improve initial population time */
+void populate_backwards(intset_l_t *set, int num_to_add, int *seed,
+                        long range) {
+  val_t val;
+  int diff_range, i, insert, num_added;
+
+  diff_range = range / num_to_add;
+  val = range;
+  num_added = 0;
+  for (i = 0; i < range; ++i) {
+    insert = rand_range_re(seed, diff_range) - 1;
+    if (insert == 0) {
+      if (!set_add_l(set, val, 0)) {
+        perror("Failed to add during initial population.\n");
+        exit(1);
+      }
+      ++num_added;
+    }
+    --val;
+  }
+
+  printf("Number inserted : %d\n", num_added);
+  while (num_added != num_to_add) {
+    val = rand_range_re(seed, range);
+    if (num_added > num_to_add) {
+      if (set_remove_l(set, val)) {
+        --num_added;
+      }
+    } else {
+      if (set_add_l(set, val, 0)) {
+        ++num_added;
+      }
+    }
+  }
+}
+
+/* Populates the data structure with a uniform distribution of values in the
+ * range. Does so in reverse order to improve initial population time */
+void populate_backwards_unsafe(intset_unsafe_l_t *set, int num_to_add,
+                               int *seed, long range) {
+  val_t val;
+  int diff_range, i, insert, num_added;
+
+  diff_range = range / num_to_add;
+  val = range;
+  num_added = 0;
+  for (i = 0; i < range; ++i) {
+    insert = rand_range_re(seed, diff_range) - 1;
+    if (insert == 0) {
+      if (!set_add_unsafe_l(set, val)) {
+        perror("Failed to add during initial population.\n");
+        exit(1);
+      }
+      ++num_added;
+    }
+    --val;
+  }
+
+  printf("Number inserted : %d\n", num_added);
+  while (num_added != num_to_add) {
+    val = rand_range_re(seed, range);
+    if (num_added > num_to_add) {
+      if (set_remove_unsafe_l(set, val)) {
+        --num_added;
+      }
+    } else {
+      if (set_add_unsafe_l(set, val)) {
+        ++num_added;
+      }
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -258,16 +408,18 @@ int main(int argc, char **argv) {
       {"update-rate", required_argument, NULL, 'u'},
       {"unit-tx", required_argument, NULL, 'x'},
       {"capacity", required_argument, NULL, 'c'},
+      {"rq-length", required_argument, NULL, 'l'},
+      {"unsafe", no_argument, NULL, 'U'},
       {NULL, 0, NULL, 0}};
 
-  intset_l_t *set;
+  set_t set;
   int i, c, size;
   val_t last = 0;
   val_t val = 0;
   unsigned long reads, effreads, rqs, effrqs, updates, effupds, aborts,
       aborts_locked_read, aborts_locked_write, aborts_validate_read,
       aborts_validate_write, aborts_validate_commit, aborts_invalid_memory,
-      max_retries, ptr_count;
+      max_retries, nodes_rqed, ptr_count;
   thread_data_t *data;
   pthread_t *threads;
   pthread_attr_t attr;
@@ -286,12 +438,14 @@ int main(int argc, char **argv) {
   int unit_tx = DEFAULT_LOCKTYPE;
   int alternate = DEFAULT_ALTERNATE;
   int effective = DEFAULT_EFFECTIVE;
+  int rq_len = DEFAULT_RQ_LEN;
   int capacity = -1;
+  int unsafe = 0;
   sigset_t block_set;
 
   while (1) {
     i = 0;
-    c = getopt_long(argc, argv, "hAf:d:i:t:r:S:u:x:R:q:m:R:c:", long_options,
+    c = getopt_long(argc, argv, "hAUf:d:i:t:r:S:u:x:R:q:m:R:c:l:", long_options,
                     &i);
 
     if (c == -1) break;
@@ -338,8 +492,12 @@ int main(int argc, char **argv) {
 	     "        Use lock-based algorithm\n"
 	     "        1 = lock-coupling,\n"
 	     "        2 = lazy algorithm\n"
+	     "  -U, --unsafe\n"
+	     "        Test the unsafe competitor.\n"
 	     "  -c, --capacity <int>\n"
 	     "        Number of preallocated pointers and timestamps (default=" XSTR(DEFAULT_SEED) ")\n"
+	     "  -l, --rq-length <int>\n"
+	     "        Range query size. (default=" XSTR(DEFAULT_RQ_LEN) ")\n"
 	     );
         exit(0);
       case 'A':
@@ -377,6 +535,12 @@ int main(int argc, char **argv) {
         break;
       case 'u':
         update = atoi(optarg);
+        break;
+      case 'U':
+        unsafe = 1;
+        break;
+      case 'l':
+        rq_len = atoi(optarg);
         break;
       case 'x':
         printf("The parameter x is not valid for this benchmark.\n");
@@ -444,7 +608,11 @@ int main(int argc, char **argv) {
   else
     srand(seed);
 
-  set = set_new_l(max_rq_threads, capacity, nb_threads);
+  if (!unsafe) {
+    set.safe = set_new_l(max_rq_threads, capacity, nb_threads);
+  } else {
+    set.unsafe = set_new_unsafe_l();
+  }
 
   stop = 0;
 
@@ -453,15 +621,13 @@ int main(int argc, char **argv) {
 
   /* Populate set */
   printf("Adding %d entries to set\n", initial);
-  i = 0;
-  while (i < initial) {
-    val = (rand() % range) + 1;
-    if (set_add_l(set, val, 0)) {
-      last = val;
-      i++;
-    }
+  if (!unsafe) {
+    populate_backwards(set.safe, initial, &seed, range);
+  } else {
+    populate_backwards_unsafe(set.unsafe, initial, &seed, range);
   }
-  size = set_size_l(set);
+
+  size = (unsafe == 0 ? set_size_l(set.safe) : set_size_unsafe_l(set.unsafe));
   printf("Set size     : %d\n", size);
 
   /* Access set from all threads */
@@ -471,7 +637,6 @@ int main(int argc, char **argv) {
   for (i = 0; i < nb_threads; i++) {
     printf("Creating thread %d\n", i);
     data[i].tid = i;
-    data[i].first = last;
     data[i].range = range;
     data[i].update = update;
     data[i].rq_rate = rq_rate;
@@ -479,6 +644,7 @@ int main(int argc, char **argv) {
     data[i].unit_tx = unit_tx;
     data[i].alternate = alternate;
     data[i].effective = effective;
+    data[i].rq_len = rq_len;
     data[i].nb_add = 0;
     data[i].nb_added = 0;
     data[i].nb_remove = 0;
@@ -487,6 +653,7 @@ int main(int argc, char **argv) {
     data[i].nb_found = 0;
     data[i].nb_rqs = 0;
     data[i].nb_successful_rqs = 0;
+    data[i].nb_nodes_rqed = 0;
     data[i].nb_aborts = 0;
     data[i].nb_aborts_locked_read = 0;
     data[i].nb_aborts_locked_write = 0;
@@ -498,7 +665,7 @@ int main(int argc, char **argv) {
     data[i].seed = rand();
     data[i].set = set;
     data[i].barrier = &barrier;
-    if (pthread_create(&threads[i], &attr, test, (void *)(&data[i])) != 0) {
+    if (pthread_create(&threads[i], &attr, (!unsafe ? test : test_unsafe), (void *)(&data[i])) != 0) {
       fprintf(stderr, "Error creating thread\n");
       exit(1);
     }
@@ -544,6 +711,7 @@ int main(int argc, char **argv) {
   updates = 0;
   effupds = 0;
   max_retries = 0;
+  nodes_rqed = 0;
   for (i = 0; i < nb_threads; i++) {
     printf("Thread %d\n", i);
     printf("  #add        : %lu\n", data[i].nb_add);
@@ -580,8 +748,11 @@ int main(int argc, char **argv) {
     // size += data[i].diff;
     size += data[i].nb_added - data[i].nb_removed;
     if (max_retries < data[i].max_retries) max_retries = data[i].max_retries;
+    nodes_rqed += data[i].nb_nodes_rqed;
   }
-  printf("Set size      : %d (expected: %d)\n", set_size_l(set), size);
+  printf("Set size      : %d (expected: %d)\n",
+         (unsafe == 0 ? set_size_l(set.safe) : set_size_unsafe_l(set.unsafe)),
+         size);
   printf("Duration      : %d (ms)\n", duration);
   printf("#txs          : %lu (%f / s)\n", reads + updates + rqs,
          (reads + updates + rqs) * 1000.0 / duration);
@@ -626,11 +797,15 @@ int main(int argc, char **argv) {
          aborts_invalid_memory * 1000.0 / duration);
   printf("Max retries   : %lu\n", max_retries);
 
-  ptr_count = set_count_used_ptrs_l(set);
-  printf("avg # ptrs    : %f\n", ptr_count / (double) size);
+  if (!unsafe) {
+    ptr_count = set_count_used_ptrs_l(set.safe);
+    printf("avg # ptrs    : %f\n", ptr_count / (double)size);
+  }
+
+  printf("#nodes RQ'ed  : %lu (%3.1f / rq)\n", nodes_rqed, nodes_rqed / (double)rqs);
 
   /* Delete set */
-  set_delete_l(set);
+  (unsafe == 0 ? set_delete_l(set.safe) : set_delete_unsafe_l(set.unsafe));
 
   free(threads);
   free(data);

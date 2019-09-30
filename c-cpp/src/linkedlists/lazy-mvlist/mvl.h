@@ -14,21 +14,6 @@
 
 #include <atomic_ops.h>
 
-#define DEFAULT_DURATION 10000
-#define DEFAULT_INITIAL 256
-#define DEFAULT_NB_THREADS 1
-#define DEFAULT_MAX_RQ 8
-#define DEFAULT_NB_RQ_THREADS 0
-#define DEFAULT_RQ_RATE 20
-#define DEFAULT_RANGE 0x7FFFFFFF
-#define DEFAULT_RQ 0
-#define DEFAULT_SEED 0
-#define DEFAULT_UPDATE 20
-#define DEFAULT_LOCKTYPE 2
-#define DEFAULT_ALTERNATE 0
-#define DEFAULT_EFFECTIVE 1
-#define DEFAULT_CAPACITY 1000
-
 #define XSTR(s) STR(s)
 #define STR(s) #s
 

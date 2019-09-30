@@ -21,17 +21,17 @@
  * GNU General Public License for more details.
  */
 
-#include "intset.h"
-#include "coupling.h"
-#include "lazy.h"
+#ifndef MVLIST_UNSAFE_INTSETUNSAFE_H
+#define MVLIST_UNSAFE_INTSETUNSAFE_H
 
-int set_contains_l(intset_l_t *set, val_t val) { return parse_find(set, val); }
+#include "unsafe.h"
 
-int set_add_l(intset_l_t *set, val_t val) { return parse_insert(set, val); }
+intset_unsafe_l_t *set_new_unsafe_l();
+void set_delete_unsafe_l(intset_unsafe_l_t *set);
+int set_size_unsafe_l(intset_unsafe_l_t *set);
+int set_contains_unsafe_l(intset_unsafe_l_t *set, val_t val);
+int set_add_unsafe_l(intset_unsafe_l_t *set, val_t val);
+int set_remove_unsafe_l(intset_unsafe_l_t *set, val_t val);
+int set_rq_unsafe_l(intset_unsafe_l_t *set, val_t low, val_t high, val_t **results, uint32_t *num_results);
 
-int set_remove_l(intset_l_t *set, val_t val) { return parse_delete(set, val); }
-
-int set_rq_l(intset_l_t *set, val_t low, val_t high, val_t **results,
-             uint32_t *num_results) {
-  return parse_rq(set, low, high, results, num_results);
-}
+#endif

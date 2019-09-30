@@ -23,8 +23,8 @@
 
 #include "linkedlist-lock.h"
 
-int set_contains_l(intset_l_t *set, val_t val, int transactional);
-int set_add_l(intset_l_t *set, val_t val, int transactional);
-int set_remove_l(intset_l_t *set, val_t val, int transactional);
+int set_contains_l(intset_l_t *set, val_t val);
+int set_add_l(intset_l_t *set, val_t val);
+int set_remove_l(intset_l_t *set, val_t val);
 int set_rq_l(intset_l_t *set, val_t low, val_t high, val_t **results,
-             uint32_t *num_results, int transactional);
+             uint32_t *num_results);

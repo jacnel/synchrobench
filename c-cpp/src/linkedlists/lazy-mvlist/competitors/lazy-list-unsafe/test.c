@@ -23,9 +23,10 @@
 
 #include "intset.h"
 
-#define UPDATE 0
-#define RANGE_QUERY 1
+#define INSERT 0
+#define REMOVE 1
 #define CONTAINS 2
+#define RANGE_QUERY 3
 
 typedef struct barrier {
   pthread_cond_t complete;
@@ -96,6 +97,7 @@ typedef struct thread_data {
   val_t first;
   long range;
   int update;
+  int rq_threads;
   int rq_rate;
   int unit_tx;
   int alternate;
@@ -124,9 +126,13 @@ typedef struct thread_data {
 int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
   int r, op;
   r = (rand_range_re(seed, 100) - 1);
-  if (tid < 0) {
+  if (tid >= 0) {
     if (r < update) {
-      op = UPDATE;
+      if (r % 2 == 0) {
+        op = INSERT;
+      } else {
+        op = REMOVE;
+      }
     } else {
       op = CONTAINS;
     }
@@ -134,7 +140,11 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
     if (r < rq_rate) {
       op = RANGE_QUERY;
     } else if (r < (update / (double)100) * (100 - (rq_rate))) {
-      op = UPDATE;
+      if (r % 2 == 0) {
+        op = INSERT;
+      } else {
+        op = REMOVE;
+      }
     } else {
       op = CONTAINS;
     }
@@ -143,7 +153,7 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
 }
 
 void *test(void *data) {
-  int op, num_results, last = -1;
+  int op, num_results;
   val_t low, high, temp, *results, val = 0;
 
   thread_data_t *d = (thread_data_t *)data;
@@ -152,95 +162,102 @@ void *test(void *data) {
   barrier_cross(d->barrier);
 
   /* Is the first op an update? */
-  op = get_rand_op(&d->seed, d->update, d->rq_rate, d->tid);
+  op = get_rand_op(&d->seed, d->update, d->rq_rate, (d->tid - d->rq_threads));
 
   while (stop == 0) {
-    /* Postive tid threads perform 100% range queries */
-    if (op == UPDATE) {  // update
-      if (last < 0) {    // add
-        val = rand_range_re(&d->seed, d->range);
-        if (set_add_l(d->set, val, TRANSACTIONAL)) {
-          d->nb_added++;
-          last = val;
-        }
-        d->nb_add++;
-      } else {               // remove
-        if (d->alternate) {  // alternate mode
-          if (set_remove_l(d->set, last, TRANSACTIONAL)) {
-            d->nb_removed++;
-          }
-          last = -1;
-        } else {
-          val = rand_range_re(&d->seed, d->range);
-          if (set_remove_l(d->set, val, TRANSACTIONAL)) {
-            d->nb_removed++;
-            last = -1;
-          }
-        }
-        d->nb_remove++;
+    if (op == INSERT) {  // update
+      val = rand_range_re(&d->seed, d->range);
+      if (set_add_l(d->set, val)) {
+        d->nb_added++;
       }
+      d->nb_add++;
+    } else if (op == REMOVE) {
+      val = rand_range_re(&d->seed, d->range);
+      if (set_remove_l(d->set, val)) {
+        d->nb_removed++;
+      }
+      d->nb_remove++;
     } else if (op == RANGE_QUERY) {
-      low = rand_range_re(&d->seed, d->range);
-      high = rand_range_re(&d->seed, d->range);
-      if (high < low) {
-        temp = high;
-        high = low;
-        low = temp;
-      }
-      if (set_rq_l(d->set, low, high, &results, &num_results,
-                   TRANSACTIONAL)) {
+      low = rand_range_re(&d->seed, d->range - 100);
+      if (set_rq_l(d->set, low, low + 100, &results, &num_results)) {
         d->nb_successful_rqs++;
       }
       d->nb_rqs++;
     } else {  // read
-      if (d->alternate) {
-        if (d->update == 0) {
-          if (last < 0) {
-            val = d->first;
-            last = val;
-          } else {  // last >= 0
-            val = rand_range_re(&d->seed, d->range);
-            last = -1;
-          }
-        } else {  // update != 0
-          if (last < 0) {
-            val = rand_range_re(&d->seed, d->range);
-            // last = val;
-          } else {
-            val = last;
-          }
-        }
-      } else
-        val = rand_range_re(&d->seed, d->range);
-
-      if (set_contains_l(d->set, val, TRANSACTIONAL)) d->nb_found++;
+      val = rand_range_re(&d->seed, d->range);
+      if (set_contains_l(d->set, val)) d->nb_found++;
       d->nb_contains++;
     }
 
     /* Is the next op an update? */
-    if (d->effective && d->tid < 0) {  // a failed remove/add is a read-only tx
+    if (d->effective && (d->tid - d->rq_threads) >=
+                            0) {  // a failed remove/add is a read-only tx
       if ((100 * (d->nb_added + d->nb_removed)) <
           (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
-        op = UPDATE;
+        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
+          op = INSERT;
+        else
+          op = REMOVE;
       } else {
         op = CONTAINS;
       }
     } else if (d->effective) {
       if ((100 * (d->nb_rqs)) <= (d->rq_rate * (d->nb_add + d->nb_remove +
-                                               d->nb_contains + d->nb_rqs))) {
+                                                d->nb_contains + d->nb_rqs))) {
         op = RANGE_QUERY;
       } else if ((100 * (d->nb_added + d->nb_removed)) <
-                 (d->update *
-                  (d->nb_add + d->nb_remove + d->nb_contains))) {
-        op = UPDATE;
+                 (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
+        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
+          op = INSERT;
+        else
+          op = REMOVE;
       } else {
         op = CONTAINS;
       }
     } else {  // remove/add (even failed) is considered an update
-      op = get_rand_op(&d->seed, d->update, d->rq_rate, d->tid);
+      op = get_rand_op(&d->seed, d->update, d->rq_rate,
+                       (d->tid - d->rq_threads));
     }
   }
   return NULL;
+}
+
+/* Populates the data structure with a uniform distribution of values in the
+ * range. Does so in reverse order to improve initial population time */
+void populate_backwards(intset_l_t *set, int num_to_add, int *seed,
+                        long range) {
+  val_t val;
+  int diff_range, i, insert, num_added;
+
+  diff_range = range / num_to_add;
+  printf("Diff range : %d\n", diff_range);
+  val = range;
+  num_added = 0;
+  for (i = 0; i < range; ++i) {
+    insert = rand_range_re(seed, diff_range) - 1;
+    if (insert == 0) {
+      if (!set_add_l(set, val)) {
+        perror("Failed to add during initial population.\n");
+        exit(1);
+      }
+      ++num_added;
+    }
+    --val;
+  }
+
+  printf("Number inserted : %d\n", num_added);
+  while (num_added != num_to_add) {
+    val = rand_range_re(seed, range);
+    if (num_added > num_to_add) {
+      if(set_remove_l(set, val)) {
+        --num_added;
+      }
+    } else {
+      if (set_add_l(set, val)) {
+        ++num_added;
+      }
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -434,14 +451,8 @@ int main(int argc, char **argv) {
 
   /* Populate set */
   printf("Adding %d entries to set\n", initial);
-  i = 0;
-  while (i < initial) {
-    val = (rand() % range) + 1;
-    if (set_add_l(set, val, unit_tx)) {
-      last = val;
-      i++;
-    }
-  }
+  populate_backwards(set, initial, &seed, range);
+
   size = set_size_l(set);
   printf("Set size     : %d\n", size);
 
@@ -451,10 +462,11 @@ int main(int argc, char **argv) {
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
     printf("Creating thread %d\n", i);
-    data[i].tid = (i < nb_rq_threads ? i : -1);
+    data[i].tid = i;
     data[i].first = last;
     data[i].range = range;
     data[i].update = update;
+    data[i].rq_threads = nb_rq_threads;
     data[i].rq_rate = rq_rate;
     data[i].alternate = alternate;
     data[i].unit_tx = unit_tx;

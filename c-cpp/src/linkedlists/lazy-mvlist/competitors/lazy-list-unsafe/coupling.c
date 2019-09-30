@@ -29,6 +29,7 @@
  * element) then unlock previous, keep ownership of the current, and lock next
  * in a loop.
  */
+
 int lockc_delete(intset_l_t *set, val_t val) {
   node_l_t *curr, *next;
   int found;
@@ -104,6 +105,6 @@ int lockc_insert(intset_l_t *set, val_t val) {
 }
 
 int lockc_rq(intset_l_t *set, val_t low, val_t high, val_t **results,
-               uint32_t *num_results) {
+             uint32_t *num_results) {
   return 0;
 }
