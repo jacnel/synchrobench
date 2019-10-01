@@ -6,13 +6,12 @@ rqtracker_l_t *rqtracker_new_l(uint32_t max_rq) {
 
   rqt = (rqtracker_l_t *)malloc(sizeof(rqtracker_l_t));
   rqt->max_rq = max_rq;
-  rqt->ts = NULL_TIMESTAMP;
+  rqt->ts = MIN_TIMESTAMP;
   rqt->active = (timestamp_t *)malloc(sizeof(timestamp_t) * max_rq);
   for (i = 0; i < max_rq; ++i) {
     rqt->active[i] = NULL_TIMESTAMP;
   }
   rqt->num_active = 0;
-  INIT_LOCK(&rqt->lock);
   return rqt;
 }
 
@@ -51,31 +50,30 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
 }
 
 timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
-  LOCK(&rqt->lock);
-  ++(rqt->ts);
-  return rqt->ts;
+  while (AO_compare_and_swap_full(&rqt->flag, 0, 1))
+    ;
+  return rqt->ts + 1;
 }
 
-void rqtracker_end_update_l(rqtracker_l_t *rqt) { UNLOCK(&rqt->lock); }
+void rqtracker_end_update_l(rqtracker_l_t *rqt) {
+  ++rqt->ts;
+  rqt->flag = 0;
+  AO_compiler_barrier();
+}
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
   timestamp_t ts;
-  LOCK(&rqt->lock);
   ts = rqt->ts;
   rqt->active[rq_id] = ts;
-  ++(rqt->num_active);
-  UNLOCK(&rqt->lock);
+  AO_int_fetch_and_add1(&rqt->num_active);
   return ts;
 }
 
 void rqtracker_end_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
-  LOCK(&rqt->lock);
   rqt->active[rq_id] = NULL_TIMESTAMP;
-  --(rqt->num_active);
-  UNLOCK(&rqt->lock);
+  AO_int_fetch_and_sub1(&rqt->num_active);
 }
 
 void rqtracker_delete_l(rqtracker_l_t *rqt) {
   free(rqt->active);
-  DESTROY_LOCK(&rqt->lock);
 }

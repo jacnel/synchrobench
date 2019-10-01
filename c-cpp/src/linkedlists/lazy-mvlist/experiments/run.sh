@@ -75,6 +75,12 @@ for list in $LISTS; do
                 j=0
                 while [[ $j -lt ${#GREP[@]} ]]; do
                   result=$(echo "${OUTPUT}" | grep "${GREP[j]}" | sed -e "s/.*(//" | sed -e "s/[.].*//")
+                  re='^[-+]?[0-9]+([.][0-9]+)?$'
+                  if [[ $results =~ $re ]]; then
+                    echo -e $MVL_RED"A problem occured during testing..."$MVL_CLEAR
+                    echo $OUTPUT
+                    exit
+                  fi
                   avgs[j]=$((${avgs[j]} + $result))
                   j=$(($j + 1))
                 done
