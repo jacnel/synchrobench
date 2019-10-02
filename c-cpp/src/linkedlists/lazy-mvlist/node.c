@@ -17,64 +17,60 @@ node_l_t *new_node_l(val_t val, uint32_t depth) {
   return node_l;
 }
 
-void node_retire_edge_l(node_l_t *node, timestamp_t *active,
-                        uint32_t num_active) {
-  timestamp_t curr_rq, curr_edge, next_edge;
-  int a, i, j, curr_idx, next_idx, new_idx, prev_idx;
-  uint32_t depth, newest;
+void node_recycle_edge_l(node_l_t *node, node_l_t *next, timestamp_t ts,
+                         timestamp_t *active, uint32_t num_active) {
+  timestamp_t curr_rq_ts, curr_edge_ts;
+  int i, a, to_recycle, found;
+  uint32_t depth, start;
 
-  if (num_active == 0) {
-    return;
-  }
-
+  /* Find an edge to recycle. */
   depth = node->depth;
-  newest = (node->newest + 1) % depth;
-  for (i = 0, a = 0; i < depth - 1; ++i, ++a) {
-    if (a < num_active) {
-      curr_rq = active[a];
-    } else {
-      /* Automatically trigger reuse. */
-      curr_rq = MAX_TIMESTAMP;
-    }
-
-    curr_idx = (newest + i) % depth;
-    next_idx = (curr_idx + 1) % depth;
-    curr_edge = node->ts[curr_idx];
-    next_edge = node->ts[next_idx];
-
-    if (curr_edge == NULL_TIMESTAMP ||
-        (curr_edge < curr_rq && next_edge <= curr_rq)) {
-      for (j = 0; j < depth - 1; ++j) {
-        new_idx = (depth + (curr_idx - j)) % depth;
-        if (new_idx == newest) {
-          break;
-        } else {
-          /* Shift edges to make room. */
-          prev_idx = (depth + (new_idx - 1)) % depth;
-          node->next[new_idx] = node->next[prev_idx];
-          node->ts[new_idx] = node->ts[prev_idx];
+  start = (node->newest + 1) % depth;
+  if (num_active == 0) {
+    to_recycle = start;
+  } else {
+    found = 0;
+    /* TODO(jacnel): More elegantly find the index to recycle. */
+    for (i = 0; !found && i < depth - 1; ++i) {
+      to_recycle = (start + i) % depth;
+      curr_edge_ts = node->ts[to_recycle];
+      for (a = 0; !found && a < num_active; ++a) {
+        curr_rq_ts = active[a];
+        if (curr_edge_ts == NULL_TIMESTAMP || curr_edge_ts < curr_rq_ts) {
+          found = 1; /* Edge at index `to_recycle' may be recycled. */
         }
       }
-      return;
     }
+    assert(found);
   }
-  assert(0);
+
+  /* Replace the edge with the new next pointer. */
+  node->newest_next = next; /* Visible to normal operations. */
+  node->next[to_recycle] = NULL;
+  node->ts[to_recycle] = ts;
+  node->next[to_recycle] = next;
+  node->newest = to_recycle; /* Visible to RQs. */
 }
 
 node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts) {
-  int i, idx;
-  uint32_t depth, newest;
+  int i, next_idx, temp_idx;
+  uint32_t depth, start;
   timestamp_t curr_ts;
   depth = node->depth;
-  newest = node->newest;
+  start = node->newest;
+  next_idx = start;
   for (i = 0; i < depth; ++i) {
-    idx = (depth + (newest - i)) % depth;
-    if (node->ts[idx] <= ts) {
-      assert(node->ts[idx] != NULL_TIMESTAMP);
-      return node->next[idx];
+    temp_idx = (depth + (start - i)) % depth;
+    curr_ts = node->ts[temp_idx];
+    if (curr_ts > node->ts[next_idx] && curr_ts <= ts &&
+        curr_ts != NULL_TIMESTAMP) {
+      while (node->next[temp_idx] == NULL)
+        ;
+      assert(node->next[temp_idx] != NULL);
+      next_idx = temp_idx;
     }
   }
-  return NULL;
+  return node->next[next_idx];
 }
 
 void node_delete_l(node_l_t *node) {
