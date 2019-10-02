@@ -63,11 +63,14 @@ void node_retire_edge_l(node_l_t *node, timestamp_t *active,
 
 node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts) {
   int i, idx;
-  uint32_t depth;
+  uint32_t depth, newest;
+  timestamp_t curr_ts;
   depth = node->depth;
+  newest = node->newest;
   for (i = 0; i < depth; ++i) {
-    idx = (depth + (node->newest - i)) % depth;
+    idx = (depth + (newest - i)) % depth;
     if (node->ts[idx] <= ts) {
+      assert(node->ts[idx] != NULL_TIMESTAMP);
       return node->next[idx];
     }
   }

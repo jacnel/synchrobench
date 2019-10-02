@@ -88,10 +88,10 @@ int parse_insert(intset_l_t *set, val_t val, uint32_t tid) {
     newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
     newnode->ts[newnode->newest] = ts;
-    pred->next[newest] = newnode;
+    pred->newest_next = newnode;
     pred->ts[newest] = ts;
+    pred->next[newest] = newnode;
     pred->newest = newest;
-    pred->newest_next = pred->next[newest];
     rqtracker_end_update_l(set->rqt);
   }
   UNLOCK(&curr->lock);
@@ -129,12 +129,12 @@ int parse_delete(intset_l_t *set, val_t val) {
     curr_newest = curr->newest;
     pred_newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
-    curr->next[curr_newest] = get_marked_ref(curr->next[curr_newest]);
-    curr->newest_next = curr->next[curr_newest];
-    pred->next[pred_newest] = get_unmarked_ref(curr->next[curr->newest]);
+    curr->newest_next = get_marked_ref(curr->next[curr_newest]);
+    curr->next[curr_newest] = curr->newest_next;
+    pred->newest_next = get_unmarked_ref(curr->next[curr->newest]);
     pred->ts[pred_newest] = ts;
+    pred->next[pred_newest] = pred->newest_next;
     pred->newest = pred_newest;
-    pred->newest_next = pred->next[pred_newest];
     rqtracker_end_update_l(set->rqt);
   }
   UNLOCK(&curr->lock);
@@ -144,7 +144,7 @@ int parse_delete(intset_l_t *set, val_t val) {
 
 int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
              val_t **results, uint32_t *num_results) {
-  node_l_t *curr;
+  node_l_t *curr, *t1, *t2;
   timestamp_t ts;
   val_t *r, *temp;
   uint32_t i, limit;
@@ -154,8 +154,11 @@ int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,
   r = (val_t *)malloc(sizeof(val_t) * limit);
   curr = set->head;
   ts = rqtracker_start_rq_l(set->rqt, rq_id);
-  while (curr->val < low)
+  while (curr->val < low) {
+    t2 = t1;
+    t1 = curr;
     curr = get_unmarked_ref(node_next_from_timestamp_l(curr, ts));
+  }
 #ifdef COUNT_RQ
   /* When counting RQs we assume that high - low is the number of desired
    * elements to return */

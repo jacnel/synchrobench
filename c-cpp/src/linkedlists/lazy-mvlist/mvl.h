@@ -75,10 +75,10 @@ typedef struct arena_l {
 
 typedef struct rqtracker_l {
   volatile timestamp_t ts;
-  volatile size_t flag;
-  volatile uint32_t num_active;
+  volatile size_t update_flag;
+  volatile timestamp_t *active;
+  volatile uint32_t *active_flag;
   uint32_t max_rq;
-  timestamp_t *active;
 } rqtracker_l_t;
 
 typedef struct intset_l {

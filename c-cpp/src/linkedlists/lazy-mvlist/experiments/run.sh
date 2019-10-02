@@ -64,21 +64,23 @@ for list in $LISTS; do
               i=0
               echo -n "$list, $size, $update, $max_rq, $rq_thread, $rq_rate, $thread"
               while [[ $i -lt $TRIALS ]]; do
+                exec 3>&1
                 # Run trial and collect the results.
                 if [[ $list == $MVL_MVLIST ]]; then
-                  OUTPUT="$(numactl $NUMA_FLAGS $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq)"
+                  numactl $NUMA_FLAGS $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq &>temp 
                 else
-                  OUTPUT="$(numactl $NUMA_FLAGS $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U)"
+                  numactl $NUMA_FLAGS $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U &>temp
                 fi
 
                 # Grep for the desired result and accumulate for averaging.
                 j=0
+                # echo "${OUTPUT}"
                 while [[ $j -lt ${#GREP[@]} ]]; do
-                  result=$(echo "${OUTPUT}" | grep "${GREP[j]}" | sed -e "s/.*(//" | sed -e "s/[.].*//")
+                  result=$(cat temp | grep "${GREP[j]}" | sed -e "s/.*(//" | sed -e "s/[.].*//")
                   re='^[-+]?[0-9]+([.][0-9]+)?$'
-                  if [[ $results =~ $re ]]; then
-                    echo -e $MVL_RED"A problem occured during testing..."$MVL_CLEAR
-                    echo $OUTPUT
+                  if [[ -z "${result}" ]]; then
+                    echo -e $MVL_RED"\nA problem occured while grepping for ${GREP[j]}."$MVL_CLEAR
+                    echo "${OUTPUT}"
                     exit
                   fi
                   avgs[j]=$((${avgs[j]} + $result))
