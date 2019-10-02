@@ -802,7 +802,7 @@ int main(int argc, char **argv) {
     printf("avg # ptrs    : %f\n", ptr_count / (double)size);
   }
 
-  printf("#nodes RQ'ed  : %lu (%3.1f / rq)\n", nodes_rqed, nodes_rqed / (double)rqs);
+  printf("#nodes RQ'ed  : %lu (%f / s, %3.1f / rq)\n", nodes_rqed, nodes_rqed * 1000.0 / duration, nodes_rqed / (double)rqs);
 
   /* Delete set */
   (unsafe == 0 ? set_delete_l(set.safe) : set_delete_unsafe_l(set.unsafe));
