@@ -26,3 +26,8 @@ MVL_RESULTS_DIR=./results
 MVL_ALL_OPS="#txs"
 MVL_RQ_OPS="#rq txs"
 MVL_UPDATE_OPS="#update txs"
+
+# NUMA policies.
+MVL_NO_NUMA=0
+MVL_FILL_NUMA=1
+MVL_INTER_NUMA=2

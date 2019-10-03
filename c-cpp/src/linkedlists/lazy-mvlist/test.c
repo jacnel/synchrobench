@@ -208,9 +208,10 @@ int test_remove(val_t val, thread_data_t *d) {
 }
 
 int test_range_query(val_t low, val_t high, thread_data_t *d, val_t **results,
-                int *num_results) {
+                     int *num_results) {
   if (d->unsafe) {
-    return set_rq_unsafe_l(d->set.unsafe, low, low + d->rq_len, results, num_results);
+    return set_rq_unsafe_l(d->set.unsafe, low, low + d->rq_len, results,
+                           num_results);
   } else {
     return set_rq_l(d->set.safe, low, low + d->rq_len, d->tid, results,
                     num_results);
@@ -225,13 +226,10 @@ void *test(void *data) {
   thread_data_t *d = (thread_data_t *)data;
 
   /* Set NUMA zone. */
-  mask = numa_allocate_cpumask();
-  numa_bitmask_clearall(mask);
   if (d->numa >= 0) {
-    if (numa_node_to_cpus(d->numa, mask) != 0) {
-      perror("Could not convert NUMA node to cpu bitmask.\n");
-      exit(1);
-    }
+    mask = numa_allocate_nodemask();
+    numa_bitmask_clearall(mask);
+    numa_bitmask_setbit(mask, d->numa);
     numa_bind(mask);
     numa_free_cpumask(mask);
   }
@@ -257,8 +255,7 @@ void *test(void *data) {
       d->nb_remove++;
     } else if (op == RANGE_QUERY) {
       low = rand_range_re(&d->seed, d->range - d->rq_len);
-      if (test_range_query(low, high, d, &results,
-                   &num_results)) {
+      if (test_range_query(low, high, d, &results, &num_results)) {
         d->nb_successful_rqs++;
       }
       d->nb_nodes_rqed += num_results;
@@ -659,6 +656,7 @@ int main(int argc, char **argv) {
     data[i].numa = -1;
 
     if (numa_policy != NO_NUMA) {
+      printf("HERE\n");
       if (numa_available() == -1) {
         perror("NUMA is not supported on this machine.\n");
         exit(1);
@@ -675,8 +673,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (pthread_create(&threads[i], &attr, test,
-                       (void *)(&data[i])) != 0) {
+    if (pthread_create(&threads[i], &attr, test, (void *)(&data[i])) != 0) {
       fprintf(stderr, "Error creating thread\n");
       exit(1);
     }

@@ -67,9 +67,9 @@ for list in $LISTS; do
                 exec 3>&1
                 # Run trial and collect the results.
                 if [[ $list == $MVL_MVLIST ]]; then
-                  numactl $NUMA_FLAGS $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq &>temp 
+                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq -n${NUMA_POLICY}
                 else
-                  numactl $NUMA_FLAGS $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U &>temp
+                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U -n${NUMA_POLICY}
                 fi
 
                 # Grep for the desired result and accumulate for averaging.
