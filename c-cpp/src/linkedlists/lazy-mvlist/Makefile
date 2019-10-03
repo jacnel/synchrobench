@@ -6,6 +6,7 @@ $(shell [ -d "$(BUILDIR)/unsafe" ] || mkdir -p $(BUILDIR)/unsafe)
 
 BINS = $(BINDIR)/$(LOCK)-lazy-mvlist
 CFLAGS += -std=gnu89
+LDFLAGS += -lnuma
 
 ifeq ($(NOPREALLOC), TRUE)
 	CFLAGS += -DNOPREALLOC

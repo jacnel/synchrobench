@@ -20,6 +20,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+#include <numa.h>
 
 #include "intset.h"
 #include "unsafe/intset-unsafe.h"
@@ -39,11 +40,16 @@
 #define DEFAULT_EFFECTIVE 1
 #define DEFAULT_CAPACITY 1000
 #define DEFAULT_RQ_LEN 100
+#define DEFAULT_NUMA_POLICY 0
 
 #define INSERT 0
 #define REMOVE 1
 #define CONTAINS 2
 #define RANGE_QUERY 3
+
+#define NO_NUMA 0
+#define FILL_NUMA 1
+#define INTER_NUMA 2
 
 typedef struct barrier {
   pthread_cond_t complete;
@@ -143,7 +149,9 @@ typedef struct thread_data {
   unsigned long max_retries;
   unsigned int seed;
   set_t set;
+  int unsafe;
   barrier_t *barrier;
+  int numa;
 } thread_data_t;
 
 int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
@@ -175,11 +183,58 @@ int get_rand_op(unsigned int *seed, int update, int rq_rate, int tid) {
   return op;
 }
 
+int test_contains(val_t val, thread_data_t *d) {
+  if (d->unsafe) {
+    return set_contains_unsafe_l(d->set.unsafe, val);
+  } else {
+    return set_contains_l(d->set.safe, val);
+  }
+}
+
+int test_insert(val_t val, thread_data_t *d) {
+  if (d->unsafe) {
+    return set_add_unsafe_l(d->set.unsafe, val);
+  } else {
+    return set_add_l(d->set.safe, val, d->tid);
+  }
+}
+
+int test_remove(val_t val, thread_data_t *d) {
+  if (d->unsafe) {
+    return set_remove_unsafe_l(d->set.unsafe, val);
+  } else {
+    return set_remove_l(d->set.safe, val);
+  }
+}
+
+int test_range_query(val_t low, val_t high, thread_data_t *d, val_t **results,
+                int *num_results) {
+  if (d->unsafe) {
+    return set_rq_unsafe_l(d->set.unsafe, low, low + d->rq_len, results, num_results);
+  } else {
+    return set_rq_l(d->set.safe, low, low + d->rq_len, d->tid, results,
+                    num_results);
+  }
+}
+
 void *test(void *data) {
   int op, num_results;
   val_t low, high, temp, *results, val = 0;
+  struct bitmask *mask;
 
   thread_data_t *d = (thread_data_t *)data;
+
+  /* Set NUMA zone. */
+  mask = numa_allocate_cpumask();
+  numa_bitmask_clearall(mask);
+  if (d->numa >= 0) {
+    if (numa_node_to_cpus(d->numa, mask) != 0) {
+      perror("Could not convert NUMA node to cpu bitmask.\n");
+      exit(1);
+    }
+    numa_bind(mask);
+    numa_free_cpumask(mask);
+  }
 
   /* Wait on barrier */
   barrier_cross(d->barrier);
@@ -190,19 +245,19 @@ void *test(void *data) {
   while (stop == 0) {
     if (op == INSERT) {  // update
       val = rand_range_re(&d->seed, d->range);
-      if (set_add_l(d->set.safe, val, d->tid)) {
+      if (test_insert(val, d)) {
         d->nb_added++;
       }
       d->nb_add++;
     } else if (op == REMOVE) {
       val = rand_range_re(&d->seed, d->range);
-      if (set_remove_l(d->set.safe, val)) {
+      if (test_remove(val, d)) {
         d->nb_removed++;
       }
       d->nb_remove++;
     } else if (op == RANGE_QUERY) {
       low = rand_range_re(&d->seed, d->range - d->rq_len);
-      if (set_rq_l(d->set.safe, low, low + d->rq_len, d->tid, &results,
+      if (test_range_query(low, high, d, &results,
                    &num_results)) {
         d->nb_successful_rqs++;
       }
@@ -210,79 +265,7 @@ void *test(void *data) {
       d->nb_rqs++;
     } else {  // read
       val = rand_range_re(&d->seed, d->range);
-      if (set_contains_l(d->set.safe, val)) d->nb_found++;
-      d->nb_contains++;
-    }
-
-    /* Is the next op an update? */
-    if (d->effective && (d->tid - d->rq_threads) >=
-                            0) {  // a failed remove/add is a read-only tx
-      if ((100 * (d->nb_added + d->nb_removed)) <
-          (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
-        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
-          op = INSERT;
-        else
-          op = REMOVE;
-      } else {
-        op = CONTAINS;
-      }
-    } else if (d->effective) {
-      if ((100 * (d->nb_rqs)) <= (d->rq_rate * (d->nb_add + d->nb_remove +
-                                                d->nb_contains + d->nb_rqs))) {
-        op = RANGE_QUERY;
-      } else if ((100 * (d->nb_added + d->nb_removed)) <
-                 (d->update * (d->nb_add + d->nb_remove + d->nb_contains))) {
-        if (rand_range_re(&d->seed, 2) - 1 % 2 == 0)
-          op = INSERT;
-        else
-          op = REMOVE;
-      } else {
-        op = CONTAINS;
-      }
-    } else {  // remove/add (even failed) is considered an update
-      op = get_rand_op(&d->seed, d->update, d->rq_rate,
-                       (d->tid - d->rq_threads));
-    }
-  }
-  return NULL;
-}
-
-void *test_unsafe(void *data) {
-  int op, num_results;
-  val_t low, high, temp, *results, val = 0;
-
-  thread_data_t *d = (thread_data_t *)data;
-
-  /* Wait on barrier */
-  barrier_cross(d->barrier);
-
-  /* Is the first op an update? */
-  op = get_rand_op(&d->seed, d->update, d->rq_rate, (d->tid - d->rq_threads));
-
-  while (stop == 0) {
-    if (op == INSERT) {  // update
-      val = rand_range_re(&d->seed, d->range);
-      if (set_add_unsafe_l(d->set.unsafe, val)) {
-        d->nb_added++;
-      }
-      d->nb_add++;
-    } else if (op == REMOVE) {
-      val = rand_range_re(&d->seed, d->range);
-      if (set_remove_unsafe_l(d->set.unsafe, val)) {
-        d->nb_removed++;
-      }
-      d->nb_remove++;
-    } else if (op == RANGE_QUERY) {
-      low = rand_range_re(&d->seed, d->range - d->rq_len);
-      if (set_rq_unsafe_l(d->set.unsafe, low, low + d->rq_len, &results,
-                          &num_results)) {
-        d->nb_successful_rqs++;
-      }
-      d->nb_nodes_rqed += num_results;
-      d->nb_rqs++;
-    } else {  // read
-      val = rand_range_re(&d->seed, d->range);
-      if (set_contains_unsafe_l(d->set.unsafe, val)) d->nb_found++;
+      if (test_contains(val, d)) d->nb_found++;
       d->nb_contains++;
     }
 
@@ -410,10 +393,11 @@ int main(int argc, char **argv) {
       {"capacity", required_argument, NULL, 'c'},
       {"rq-length", required_argument, NULL, 'l'},
       {"unsafe", no_argument, NULL, 'U'},
+      {"numa-policy", required_argument, NULL, 'n'},
       {NULL, 0, NULL, 0}};
 
   set_t set;
-  int i, c, size;
+  int i, c, size, numa;
   val_t last = 0;
   val_t val = 0;
   unsigned long reads, effreads, rqs, effrqs, updates, effupds, aborts,
@@ -439,14 +423,15 @@ int main(int argc, char **argv) {
   int alternate = DEFAULT_ALTERNATE;
   int effective = DEFAULT_EFFECTIVE;
   int rq_len = DEFAULT_RQ_LEN;
+  int numa_policy = DEFAULT_NUMA_POLICY;
   int capacity = -1;
   int unsafe = 0;
   sigset_t block_set;
 
   while (1) {
     i = 0;
-    c = getopt_long(argc, argv, "hAUf:d:i:t:r:S:u:x:R:q:m:R:c:l:", long_options,
-                    &i);
+    c = getopt_long(argc, argv,
+                    "hAUf:d:i:t:r:S:u:x:R:q:m:R:c:l:n:", long_options, &i);
 
     if (c == -1) break;
 
@@ -498,6 +483,8 @@ int main(int argc, char **argv) {
 	     "        Number of preallocated pointers and timestamps (default=" XSTR(DEFAULT_SEED) ")\n"
 	     "  -l, --rq-length <int>\n"
 	     "        Range query size. (default=" XSTR(DEFAULT_RQ_LEN) ")\n"
+	     "  -n, --numa_policy <int>\n"
+	     "        NUMA policy to use during testing. May be none (0), fill (1) or interleaved (2). (default=" XSTR(DEFAULT_NUMA_POLICY) ")\n"
 	     );
         exit(0);
       case 'A':
@@ -541,6 +528,9 @@ int main(int argc, char **argv) {
         break;
       case 'l':
         rq_len = atoi(optarg);
+        break;
+      case 'n':
+        numa_policy = atoi(optarg);
         break;
       case 'x':
         printf("The parameter x is not valid for this benchmark.\n");
@@ -664,8 +654,29 @@ int main(int argc, char **argv) {
     data[i].max_retries = 0;
     data[i].seed = rand();
     data[i].set = set;
+    data[i].unsafe = unsafe;
     data[i].barrier = &barrier;
-    if (pthread_create(&threads[i], &attr, (!unsafe ? test : test_unsafe), (void *)(&data[i])) != 0) {
+    data[i].numa = -1;
+
+    if (numa_policy != NO_NUMA) {
+      if (numa_available() == -1) {
+        perror("NUMA is not supported on this machine.\n");
+        exit(1);
+      }
+
+      if (numa_policy == FILL_NUMA) {
+        data[i].numa =
+            i / (numa_num_configured_cpus() / numa_num_configured_nodes());
+      } else if (numa_policy == INTER_NUMA) {
+        data[i].numa = i % numa_max_node();
+      } else {
+        perror("NUMA policy not recognized.\n");
+        exit(1);
+      }
+    }
+
+    if (pthread_create(&threads[i], &attr, test,
+                       (void *)(&data[i])) != 0) {
       fprintf(stderr, "Error creating thread\n");
       exit(1);
     }
@@ -802,7 +813,8 @@ int main(int argc, char **argv) {
     printf("avg # ptrs    : %f\n", ptr_count / (double)size);
   }
 
-  printf("#nodes RQ'ed  : %lu (%f / s, %3.1f / rq)\n", nodes_rqed, nodes_rqed * 1000.0 / duration, nodes_rqed / (double)rqs);
+  printf("#nodes RQ'ed  : %lu (%f / s, %3.1f / rq)\n", nodes_rqed,
+         nodes_rqed * 1000.0 / duration, nodes_rqed / (double)rqs);
 
   /* Delete set */
   (unsafe == 0 ? set_delete_l(set.safe) : set_delete_unsafe_l(set.unsafe));
