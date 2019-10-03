@@ -75,12 +75,15 @@ arena_l_t *arena_new_l(uint32_t capacity, uint32_t num_slots) {
 void arena_init_node_l(arena_l_t *arena, node_l_t *node, node_l_t *next,
                        timestamp_t ts, uint32_t slot_id) {
   /* If there is no arena, then allocate on demand. */
+  int i;
   if (arena == NULL) {
+    node->newest_next = next;
     node->next = (node_l_t **)malloc(sizeof(node_l_t *) * node->depth);
     node->ts = (timestamp_t *)malloc(sizeof(timestamp_t) * node->depth);
-    node->next[node->newest] = next;
-    node->ts[node->newest] = ts;
-    node->newest_next = next;
+    for (i = 0; i < node->depth; ++i) {
+      node->next[i] = (i == node->newest ? next : NULL);
+      node->ts[i] = (i == node->newest ? ts : NULL_TIMESTAMP);
+    }
   } else {
     assert(slot_id < arena->num_slots);
     assert(arena->curr[slot_id] + node->depth < arena->capacity[slot_id]);
