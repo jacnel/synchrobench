@@ -80,8 +80,8 @@ typedef struct arena_l {
 } arena_l_t;
 
 typedef struct rqtracker_l {
-  volatile timestamp_t ts;
-  volatile ptlock_t update_lock;
+  volatile timestamp_t update_ts;
+  volatile timestamp_t active_ts;
   volatile timestamp_t *active;
   volatile ptlock_t active_lock;
   uint32_t max_rq;

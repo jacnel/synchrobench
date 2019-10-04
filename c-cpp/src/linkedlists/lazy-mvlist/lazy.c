@@ -88,7 +88,7 @@ int parse_insert(intset_l_t *set, val_t val, uint32_t tid) {
     s = rqtracker_snapshot_active_l(set->rqt, &num_active);
     newnode->ts[newnode->newest] = ts;
     node_recycle_edge_l(pred, newnode, ts, s, num_active);
-    rqtracker_end_update_l(set->rqt);
+    rqtracker_end_update_l(set->rqt, ts);
   }
   UNLOCK(&curr->lock);
   UNLOCK(&pred->lock);
@@ -129,7 +129,7 @@ int parse_delete(intset_l_t *set, val_t val) {
     s = rqtracker_snapshot_active_l(set->rqt, &num_active);
     node_recycle_edge_l(pred, get_unmarked_ref(curr->next[curr_newest]), ts, s,
                         num_active);
-    rqtracker_end_update_l(set->rqt);
+    rqtracker_end_update_l(set->rqt, ts);
   }
   UNLOCK(&curr->lock);
   UNLOCK(&pred->lock);
