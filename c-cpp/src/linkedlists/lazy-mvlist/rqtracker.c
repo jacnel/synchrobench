@@ -56,9 +56,7 @@ timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
 }
 
 void rqtracker_end_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
-  LOCK(&rqt->active_lock);
   rqt->active[rq_id] = NULL_TIMESTAMP;
-  UNLOCK(&rqt->active_lock);
 }
 
 void rqtracker_delete_l(rqtracker_l_t *rqt) {
