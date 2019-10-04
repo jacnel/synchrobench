@@ -17,18 +17,18 @@ echo "max rqs        : "$MAX_RQS
 echo "rq threads     : "$RQ_THREADS
 echo "rq rates       : "$RQ_RATES
 echo "threads        : "$THREADS
-echo "numa flags     : "$NUMA_FLAGS
+echo "numa policy    : "$NUMA_POLICY
 echo "duration       : "$DURATION
 echo -e $MVL_GREEN"------------------------------------"$MVL_CLEAR
 
-echo -e -n $MVL_GREEN"list, size, update_rate, max_rqs, rq_threads, rq_rate, num_threads"
+echo -n "list, size, update_rate, max_rqs, rq_threads, rq_rate, num_threads"
 i=0
 while [[ $i -lt ${#GREP[@]} ]]; do
   echo -n ", "
   echo -n ${GREP[i]}
   i=$(($i + 1))
 done
-echo -e $MVL_CLEAR
+echo
 
 # Run experiments for each configuration.
 for list in $LISTS; do
@@ -64,12 +64,11 @@ for list in $LISTS; do
               i=0
               echo -n "$list, $size, $update, $max_rq, $rq_thread, $rq_rate, $thread"
               while [[ $i -lt $TRIALS ]]; do
-                exec 3>&1
                 # Run trial and collect the results.
                 if [[ $list == $MVL_MVLIST ]]; then
-                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq -n${NUMA_POLICY}
+                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq -n${NUMA_POLICY} &>temp
                 else
-                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U -n${NUMA_POLICY}
+                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U -n${NUMA_POLICY} &>temp
                 fi
 
                 # Grep for the desired result and accumulate for averaging.
