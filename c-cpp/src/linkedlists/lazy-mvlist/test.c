@@ -38,7 +38,7 @@
 #define DEFAULT_LOCKTYPE 2
 #define DEFAULT_ALTERNATE 0
 #define DEFAULT_EFFECTIVE 1
-#define DEFAULT_CAPACITY 1000
+#define DEFAULT_CHUNK 1<<20
 #define DEFAULT_RQ_LEN 100
 #define DEFAULT_NUMA_POLICY 0
 
@@ -387,7 +387,7 @@ int main(int argc, char **argv) {
       {"seed", required_argument, NULL, 'S'},
       {"update-rate", required_argument, NULL, 'u'},
       {"unit-tx", required_argument, NULL, 'x'},
-      {"capacity", required_argument, NULL, 'c'},
+      {"chunk", required_argument, NULL, 'c'},
       {"rq-length", required_argument, NULL, 'l'},
       {"unsafe", no_argument, NULL, 'U'},
       {"numa-policy", required_argument, NULL, 'n'},
@@ -421,7 +421,7 @@ int main(int argc, char **argv) {
   int effective = DEFAULT_EFFECTIVE;
   int rq_len = DEFAULT_RQ_LEN;
   int numa_policy = DEFAULT_NUMA_POLICY;
-  int capacity = -1;
+  int chunk = DEFAULT_CHUNK;
   int unsafe = 0;
   sigset_t block_set;
 
@@ -476,8 +476,8 @@ int main(int argc, char **argv) {
 	     "        2 = lazy algorithm\n"
 	     "  -U, --unsafe\n"
 	     "        Test the unsafe competitor.\n"
-	     "  -c, --capacity <int>\n"
-	     "        Number of preallocated pointers and timestamps (default=" XSTR(DEFAULT_SEED) ")\n"
+	     "  -c, --chunk <int>\n"
+	     "        Number of bytes preallocated per chunk for pointers and timestamps (default=" XSTR(DEFAULT_CHUNK) ")\n"
 	     "  -l, --rq-length <int>\n"
 	     "        Range query size. (default=" XSTR(DEFAULT_RQ_LEN) ")\n"
 	     "  -n, --numa_policy <int>\n"
@@ -488,7 +488,7 @@ int main(int argc, char **argv) {
         alternate = 1;
         break;
       case 'c':
-        capacity = atoi(optarg);
+        chunk = atoi(optarg);
         break;
       case 'f':
         effective = atoi(optarg);
@@ -555,10 +555,7 @@ int main(int argc, char **argv) {
   assert(nb_rq_threads >= 0);
   assert(max_rq_threads > 0);
   assert(nb_rq_threads <= max_rq_threads);
-
-  if (capacity < 0) {
-    capacity = initial * 1000 * (max_rq_threads + 2);
-  }
+  assert(chunk > 0);
 
   printf("Set type     : lazy linked list\n");
   printf("Length       : %d\n", duration);
@@ -596,7 +593,7 @@ int main(int argc, char **argv) {
     srand(seed);
 
   if (!unsafe) {
-    set.safe = set_new_l(max_rq_threads, capacity, nb_threads);
+    set.safe = set_new_l(max_rq_threads, chunk, nb_threads);
   } else {
     set.unsafe = set_new_unsafe_l();
   }
@@ -656,7 +653,6 @@ int main(int argc, char **argv) {
     data[i].numa = -1;
 
     if (numa_policy != NO_NUMA) {
-      printf("HERE\n");
       if (numa_available() == -1) {
         perror("NUMA is not supported on this machine.\n");
         exit(1);

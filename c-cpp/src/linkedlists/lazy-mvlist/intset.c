@@ -5,7 +5,7 @@
 #include "node.h"
 #include "rqtracker.h"
 
-intset_l_t *set_new_l(uint32_t max_rq, uint32_t capacity, uint32_t num_slots) {
+intset_l_t *set_new_l(uint32_t max_rq, uint32_t chunk, uint32_t num_slots) {
   intset_l_t *set;
   node_l_t *min, *max;
   int depth;
@@ -18,7 +18,7 @@ intset_l_t *set_new_l(uint32_t max_rq, uint32_t capacity, uint32_t num_slots) {
 #ifdef NOPREALLOC
   set->arena = NULL;
 #else
-  set->arena = arena_new_l(capacity, num_slots);
+  set->arena = arena_new_l(depth, chunk, num_slots);
 #endif
   max = new_node_l(VAL_MAX, depth);
   arena_init_node_l(set->arena, max, NULL, NULL_TIMESTAMP, 0);

@@ -65,12 +65,18 @@ typedef struct node_l {
 #endif
 } node_l_t;
 
+typedef struct arena_node {
+  node_l_t **next_ptr;
+  timestamp_t *ts_ptr;
+  struct arena_node *next;
+} arena_node_t;
+
 typedef struct arena_l {
   uint32_t num_slots;
-  uint32_t *capacity;
-  uint32_t *curr;
-  node_l_t ***next;
-  timestamp_t **ts;
+  uint32_t depth;
+  uint32_t chunk;
+  arena_node_t **head;
+  arena_node_t **tail;
 } arena_l_t;
 
 typedef struct rqtracker_l {
