@@ -88,10 +88,10 @@ int parse_insert(intset_l_t *set, val_t val, uint32_t tid) {
     newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
     newnode->ts[newnode->newest] = ts;
+    pred->newest_next = newnode;
     pred->next[newest] = newnode;
     pred->ts[newest] = ts;
     pred->newest = newest;
-    pred->newest_next = pred->next[newest];
     rqtracker_end_update_l(set->rqt);
   }
   UNLOCK(&curr->lock);
@@ -129,12 +129,12 @@ int parse_delete(intset_l_t *set, val_t val) {
     curr_newest = curr->newest;
     pred_newest = (pred->newest + 1) % pred->depth;
     ts = rqtracker_start_update_l(set->rqt);
-    curr->next[curr_newest] = get_marked_ref(curr->next[curr_newest]);
-    curr->newest_next = curr->next[curr_newest];
-    pred->next[pred_newest] = get_unmarked_ref(curr->next[curr->newest]);
+    curr->newest_next = get_marked_ref(curr->next[curr_newest]);
+    curr->next[curr_newest] = curr->newest_next;
+    pred->newest_next = get_unmarked_ref(curr->next[curr->newest]);
+    pred->next[pred_newest] = pred->newest_next;
     pred->ts[pred_newest] = ts;
     pred->newest = pred_newest;
-    pred->newest_next = pred->next[pred_newest];
     rqtracker_end_update_l(set->rqt);
   }
   UNLOCK(&curr->lock);
