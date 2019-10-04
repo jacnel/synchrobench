@@ -46,16 +46,18 @@ void node_recycle_edge_l(node_l_t *node, node_l_t *next, timestamp_t ts,
 
   /* Replace the edge with the new next pointer. */
   node->newest_next = next; /* Visible to normal operations. */
-  node->next[idx] = NULL;
-  node->ts[idx] = ts;
   node->next[idx] = next;
+  AO_compiler_barrier();
+  node->ts[idx] = ts;
+  AO_compiler_barrier();
   node->newest = idx; /* Visible to RQs. */
 }
 
 node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts) {
   int i, next_idx, temp_idx;
-  uint32_t depth, start;
+  uint32_t depth, start, iter;
   timestamp_t curr_ts;
+  volatile node_l_t *next;
   depth = node->depth;
   start = node->newest;
   next_idx = start;
@@ -64,14 +66,21 @@ node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts) {
     curr_ts = node->ts[temp_idx];
     if (curr_ts > node->ts[next_idx] && curr_ts <= ts &&
         curr_ts != NULL_TIMESTAMP) {
-      while (node->next[temp_idx] == NULL)
-        ;
       assert(node->next[temp_idx] != NULL);
       next_idx = temp_idx;
     }
   }
   return node->next[next_idx];
 }
+
+void node_dump_l(node_l_t *node) {
+  int i;
+  printf("node: %p\n", node);
+  for (i = 0; i < node->depth; ++i) {
+    printf("\t[%lu, %p]\n", node->ts[i], node->next[i]);
+  }
+}
+
 
 void node_delete_l(node_l_t *node) {
   DESTROY_LOCK(&node->lock);

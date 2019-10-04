@@ -9,5 +9,6 @@ void node_recycle_edge_l(node_l_t *node, node_l_t *next, timestamp_t ts,
                          timestamp_t *active, uint32_t num_active);
 node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts);
 void node_delete_l(node_l_t *node);
+void node_dump_l(node_l_t *node);
 
 #endif
