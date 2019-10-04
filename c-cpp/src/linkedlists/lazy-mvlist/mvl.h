@@ -83,7 +83,7 @@ typedef struct rqtracker_l {
   volatile timestamp_t update_ts;
   volatile timestamp_t active_ts;
   volatile timestamp_t *active;
-  pthread_rwlock_t active_rwlock;
+  ptlock_t active_rwlock;
   uint32_t max_rq;
 } rqtracker_l_t;
 
