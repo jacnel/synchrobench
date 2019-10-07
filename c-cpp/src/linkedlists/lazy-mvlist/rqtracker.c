@@ -37,13 +37,11 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
 }
 
 timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
-  LOCK(&rqt->update_lock);
-  return rqt->ts + 1;
+  return AO_load(&rqt->ts) + 1;
 }
 
 void rqtracker_end_update_l(rqtracker_l_t *rqt) {
-  ++rqt->ts;
-  UNLOCK(&rqt->update_lock);
+  AO_fetch_and_add1(&rqt->ts);
 }
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
