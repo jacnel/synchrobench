@@ -135,7 +135,7 @@ int parse_delete(intset_l_t *set, val_t val) {
       /* TODO(jacnel): Determine if the following line is necessary. */
       curr->next[curr_newest] = curr->newest_next;
       s = rqtracker_snapshot_active_l(set->rqt, &num_active);
-      node_recycle_edge_l(pred, get_unmarked_ref(curr->next[curr_newest]), ts,
+      node_recycle_edge_l(pred, get_unmarked_ref(curr->newest_next), ts,
                           s, num_active);
       rqtracker_end_update_l(set->rqt, ts);
       removed = 1;
