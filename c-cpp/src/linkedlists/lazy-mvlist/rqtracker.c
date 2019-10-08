@@ -9,10 +9,11 @@ rqtracker_l_t *rqtracker_new_l(uint32_t max_rq) {
   rqt->update_ts = MIN_TIMESTAMP;
   rqt->active_ts = NULL_TIMESTAMP;
   rqt->active = (timestamp_t *)malloc(sizeof(timestamp_t) * max_rq);
+  rqt->active_flag = (uint8_t *)malloc(sizeof(uint8_t) * max_rq);
   for (i = 0; i < max_rq; ++i) {
     rqt->active[i] = NULL_TIMESTAMP;
+    rqt->active_flag[i] = 0;
   }
-  pthread_rwlock_init(&rqt->active_rwlock, NULL);
   return rqt;
 }
 
@@ -28,8 +29,9 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
   *oldest_active = MAX_TIMESTAMP;
   *newest_active = MIN_TIMESTAMP;
   /* TODO(jacnel): Optimize taking a snapshot of the active RQs. */
-  pthread_rwlock_rdlock(&rqt->active_rwlock);
   for (i = 0, j = 0; i < rqt->max_rq; ++i) {
+    while (rqt->active_flag[i] != 0)
+      ;
     curr = rqt->active[i];
     if (curr != NULL_TIMESTAMP) {
       s[j++] = curr;
@@ -41,7 +43,6 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
       }
     }
   }
-  pthread_rwlock_unlock(&rqt->active_rwlock);
   *num_active = j;
   return s;
 }
@@ -61,10 +62,12 @@ void rqtracker_end_update_l(rqtracker_l_t *rqt, timestamp_t ts) {
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
   timestamp_t ts;
-  pthread_rwlock_wrlock(&rqt->active_rwlock);
+  rqt->active_flag[rq_id] = 1;
+  AO_compiler_barrier();
   ts = rqt->active_ts;
   rqt->active[rq_id] = ts;
-  pthread_rwlock_unlock(&rqt->active_rwlock);
+  AO_compiler_barrier();
+  rqt->active_flag[rq_id] = 0;
   return ts;
 }
 
@@ -74,5 +77,5 @@ void rqtracker_end_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
 
 void rqtracker_delete_l(rqtracker_l_t *rqt) {
   free((void *)rqt->active);
-  DESTROY_LOCK(&rqt->active_rwlock);
+  free((void *)rqt->active_flag);
 }
