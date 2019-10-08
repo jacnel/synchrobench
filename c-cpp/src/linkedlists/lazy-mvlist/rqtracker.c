@@ -52,11 +52,10 @@ timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
 
 void rqtracker_end_update_l(rqtracker_l_t *rqt, timestamp_t ts) {
   timestamp_t curr_ts;
-  curr_ts = rqt->active_ts;
-  while (curr_ts < ts) {
-    AO_compare_and_swap_full(&rqt->active_ts, curr_ts, ts);
-    curr_ts = rqt->active_ts;
-  }
+  while (rqt->active_ts != ts - 1)
+    ;
+  ++rqt->active_ts;
+  AO_compiler_barrier();
 }
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {
