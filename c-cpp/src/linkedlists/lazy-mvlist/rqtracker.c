@@ -27,7 +27,7 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
   s = (timestamp_t *)malloc(sizeof(timestamp_t) * rqt->max_rq);
   *oldest_active = MAX_TIMESTAMP;
   *newest_active = MIN_TIMESTAMP;
-  /* TODO(jacnel): Optimize taking a snapshot of the active RQs. */
+  /* TODO: Optimize taking a snapshot of the active RQs. */
   pthread_rwlock_rdlock(&rqt->active_rwlock);
   for (i = 0, j = 0; i < rqt->max_rq; ++i) {
     curr = rqt->active[i];

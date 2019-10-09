@@ -139,7 +139,7 @@ int parse_delete(intset_l_t *set, val_t val) {
       pred_newest = (pred->newest + 1) % pred->depth;
       ts = rqtracker_start_update_l(set->rqt);
       curr->newest_next = get_marked_ref(curr->next[curr_newest]);
-      /* TODO(jacnel): Determine if the following line is necessary. */
+      /* TODO: Determine if the following line is necessary. */
       curr->next[curr_newest] = curr->newest_next;
       s = rqtracker_snapshot_active_l(set->rqt, &oldest_active, &newest_active, &num_active);
       idx = node_find_edge_to_recycle_l(pred, s, oldest_active, newest_active, num_active);
