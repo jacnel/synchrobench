@@ -28,7 +28,7 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
   s = (timestamp_t *)malloc(sizeof(timestamp_t) * rqt->max_rq);
   *oldest_active = MAX_TIMESTAMP;
   *newest_active = MIN_TIMESTAMP;
-  /* TODO(jacnel): Optimize taking a snapshot of the active RQs. */
+  /* TODO: Optimize taking a snapshot of the active RQs. */
   for (i = 0, j = 0; i < rqt->max_rq; ++i) {
     while (rqt->active_flag[i] != 0)
       ;
@@ -53,11 +53,10 @@ timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
 
 void rqtracker_end_update_l(rqtracker_l_t *rqt, timestamp_t ts) {
   timestamp_t curr_ts;
-  curr_ts = rqt->active_ts;
-  while (curr_ts < ts) {
-    AO_compare_and_swap_full(&rqt->active_ts, curr_ts, ts);
-    curr_ts = rqt->active_ts;
-  }
+  while (rqt->active_ts != ts - 1)
+    ;
+  ++rqt->active_ts;
+  AO_compiler_barrier();
 }
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {

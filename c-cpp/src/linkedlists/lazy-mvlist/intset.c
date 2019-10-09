@@ -30,7 +30,7 @@ intset_l_t *set_new_l(uint32_t max_rq, uint32_t chunk, uint32_t num_slots) {
   return set;
 }
 
-// TODO(jacnel): Delete all versions, not just the newest.
+// TODO: Delete all versions, not just the newest.
 void set_delete_l(intset_l_t *set) {
   node_l_t *node, *next;
 

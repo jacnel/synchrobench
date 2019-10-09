@@ -31,3 +31,6 @@ MVL_UPDATE_OPS="#update txs"
 MVL_NO_NUMA=0
 MVL_FILL_NUMA=1
 MVL_INTER_NUMA=2
+
+# jemalloc.so path.
+MVL_JEMALLOC=/usr/local/lib/libjemalloc.so
