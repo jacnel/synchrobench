@@ -17,18 +17,28 @@ rqtracker_l_t *rqtracker_new_l(uint32_t max_rq) {
 }
 
 timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
+                                         timestamp_t *oldest_active,
+                                         timestamp_t *newest_active,
                                          uint32_t *num_active) {
   timestamp_t *s;
   timestamp_t curr;
   int i, j;
 
   s = (timestamp_t *)malloc(sizeof(timestamp_t) * rqt->max_rq);
-  /* TODO(jacnel): Optimize taking a snapshot of the active RQs. */
-  LOCK(&rqt->active_rwlock);
+  *oldest_active = MAX_TIMESTAMP;
+  *newest_active = MIN_TIMESTAMP;
+  /* TODO: Optimize taking a snapshot of the active RQs. */
+  pthread_rwlock_rdlock(&rqt->active_rwlock);
   for (i = 0, j = 0; i < rqt->max_rq; ++i) {
     curr = rqt->active[i];
     if (curr != NULL_TIMESTAMP) {
       s[j++] = curr;
+      if (curr < *oldest_active) {
+        *oldest_active = curr;
+      }
+      if (curr > *newest_active) {
+        *newest_active = curr;
+      }
     }
   }
   UNLOCK(&rqt->active_rwlock);
@@ -42,11 +52,10 @@ timestamp_t rqtracker_start_update_l(rqtracker_l_t *rqt) {
 
 void rqtracker_end_update_l(rqtracker_l_t *rqt, timestamp_t ts) {
   timestamp_t curr_ts;
-  curr_ts = rqt->active_ts;
-  while (curr_ts < ts) {
-    AO_compare_and_swap_full(&rqt->active_ts, curr_ts, ts);
-    curr_ts = rqt->active_ts;
-  }
+  while (rqt->active_ts != ts - 1)
+    ;
+  ++rqt->active_ts;
+  AO_compiler_barrier();
 }
 
 timestamp_t rqtracker_start_rq_l(rqtracker_l_t *rqt, uint32_t rq_id) {

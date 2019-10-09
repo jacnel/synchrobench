@@ -67,32 +67,45 @@ int parse_find(intset_l_t *set, val_t val) {
 
 int parse_insert(intset_l_t *set, val_t val, uint32_t tid) {
   node_l_t *curr, *pred, *newnode;
-  timestamp_t ts, *s;
-  int r, result;
+  timestamp_t ts, oldest_active, newest_active, *s;
+  int r, idx, reachable, inserted;
   uint32_t num_active, newest;
+  inserted = -1;
 
-  pred = set->head;
-  curr = get_unmarked_ref(pred->newest_next);
-  while (curr->val < val) {
-    pred = curr;
-    curr = get_unmarked_ref(curr->newest_next);
+  while (inserted < 0) {
+    pred = set->head;
+    curr = get_unmarked_ref(pred->newest_next);
+    while (curr->val < val) {
+      pred = curr;
+      curr = get_unmarked_ref(curr->newest_next);
+    }
+    LOCK(&pred->lock);
+    LOCK(&curr->lock);
+    reachable = parse_validate(pred, curr);
+    if (reachable && (curr->val != val)) {
+      newnode = new_node_l(val, set->rqt->max_rq + 2);
+      arena_init_node_l(set->arena, newnode, curr, NULL_TIMESTAMP, tid);
+      newest = (pred->newest + 1) % pred->depth;
+      ts = rqtracker_start_update_l(set->rqt);
+      s = rqtracker_snapshot_active_l(set->rqt, &oldest_active, &newest_active, &num_active);
+      newnode->ts[newnode->newest] = ts;
+      idx = node_find_edge_to_recycle_l(pred, s, oldest_active, newest_active, num_active);
+      /* Replace the edge with the new next pointer. */
+      pred->newest_next = newnode; /* Visible to normal operations. */
+      pred->next[idx] = newnode;
+      AO_compiler_barrier();
+      pred->ts[idx] = ts;
+      AO_compiler_barrier();
+      pred->newest = idx; /* Visible to RQs. */
+      rqtracker_end_update_l(set->rqt, ts);
+      inserted = 1;
+    } else if (reachable) {
+      inserted = 0;
+    }
+    UNLOCK(&curr->lock);
+    UNLOCK(&pred->lock);
   }
-  LOCK(&pred->lock);
-  LOCK(&curr->lock);
-  result = (parse_validate(pred, curr) && (curr->val != val));
-  if (result) {
-    newnode = new_node_l(val, set->rqt->max_rq + 2);
-    arena_init_node_l(set->arena, newnode, curr, NULL_TIMESTAMP, tid);
-    newest = (pred->newest + 1) % pred->depth;
-    ts = rqtracker_start_update_l(set->rqt);
-    s = rqtracker_snapshot_active_l(set->rqt, &num_active);
-    newnode->ts[newnode->newest] = ts;
-    node_recycle_edge_l(pred, newnode, ts, s, num_active);
-    rqtracker_end_update_l(set->rqt, ts);
-  }
-  UNLOCK(&curr->lock);
-  UNLOCK(&pred->lock);
-  return result;
+  return inserted;
 }
 
 /*
@@ -106,34 +119,46 @@ int parse_insert(intset_l_t *set, val_t val, uint32_t tid) {
  */
 int parse_delete(intset_l_t *set, val_t val) {
   node_l_t *pred, *curr, *n1, *n2;
-  timestamp_t ts, *s;
-  int result;
+  timestamp_t ts, oldest_active, newest_active, *s;
+  int idx, reachable, removed;
   uint32_t num_active, curr_newest, pred_newest;
+  removed = -1;
 
-  pred = set->head;
-  curr = get_unmarked_ref(pred->newest_next);
-  while (curr->val < val) {
-    pred = curr;
-    curr = get_unmarked_ref(curr->newest_next);
+  while (removed < 0) {
+    pred = set->head;
+    curr = get_unmarked_ref(pred->newest_next);
+    while (curr->val < val) {
+      pred = curr;
+      curr = get_unmarked_ref(curr->newest_next);
+    }
+    LOCK(&pred->lock);
+    LOCK(&curr->lock);
+    reachable = parse_validate(pred, curr);
+    if (reachable && (val == curr->val)) {
+      curr_newest = curr->newest;
+      pred_newest = (pred->newest + 1) % pred->depth;
+      ts = rqtracker_start_update_l(set->rqt);
+      curr->newest_next = get_marked_ref(curr->next[curr_newest]);
+      /* TODO: Determine if the following line is necessary. */
+      curr->next[curr_newest] = curr->newest_next;
+      s = rqtracker_snapshot_active_l(set->rqt, &oldest_active, &newest_active, &num_active);
+      idx = node_find_edge_to_recycle_l(pred, s, oldest_active, newest_active, num_active);
+      pred->newest_next = get_unmarked_ref(
+          curr->newest_next); /* Visible to normal operations. */
+      pred->next[idx] = pred->newest_next;
+      AO_compiler_barrier();
+      pred->ts[idx] = ts;
+      AO_compiler_barrier();
+      pred->newest = idx; /* Visible to RQs. */
+      rqtracker_end_update_l(set->rqt, ts);
+      removed = 1;
+    } else if (reachable) {
+      removed = 0;
+    }
+    UNLOCK(&curr->lock);
+    UNLOCK(&pred->lock);
   }
-  LOCK(&pred->lock);
-  LOCK(&curr->lock);
-  result = (parse_validate(pred, curr) && (val == curr->val));
-  if (result) {
-    curr_newest = curr->newest;
-    pred_newest = (pred->newest + 1) % pred->depth;
-    ts = rqtracker_start_update_l(set->rqt);
-    curr->newest_next = get_marked_ref(curr->next[curr_newest]);
-    /* TODO(jacnel): Determine if the following line is necessary. */
-    curr->next[curr_newest] = curr->newest_next;
-    s = rqtracker_snapshot_active_l(set->rqt, &num_active);
-    node_recycle_edge_l(pred, get_unmarked_ref(curr->next[curr_newest]), ts, s,
-                        num_active);
-    rqtracker_end_update_l(set->rqt, ts);
-  }
-  UNLOCK(&curr->lock);
-  UNLOCK(&pred->lock);
-  return result;
+  return removed;
 }
 
 int parse_rq(intset_l_t *set, val_t low, val_t high, uint32_t rq_id,

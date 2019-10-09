@@ -98,7 +98,7 @@ void node_reclaim_edge_l(node_l_t *node, timestamp_t *active,
     curr_edge = node->ts[curr_idx];
     next_edge = node->ts[next_idx];
 
-    /* TODO(jacnel): Deal with low number of active RQs. For instance if there
+    /* TODO: Deal with low number of active RQs. For instance if there
      * is only 2 RQs, an edge that could be reclaimed could be ignored. The
      * primary problem seems to stem from when the next edge is the newest edge.
      */
@@ -141,7 +141,7 @@ void node_delete_l(node_l_t *node) {
   free(node);
 }
 
-// TODO(jacnel): Delete all versions, not just the newest.
+// TODO: Delete all versions, not just the newest.
 void set_delete_l(intset_l_t *set) {
   node_l_t *node, *next;
 
@@ -198,7 +198,7 @@ timestamp_t *rqtracker_snapshot_active_l(rqtracker_l_t *rqt,
   end = rqt->max_rq;
   s = (timestamp_t *)malloc(sizeof(timestamp_t) * rqt->max_rq);
   // LOCK(&rqt->lock);
-  /* TODO(jacnel): Optimize taking a snapshot of the active RQs. */
+  /* TODO: Optimize taking a snapshot of the active RQs. */
   for (i = 0; i < rqt->max_rq; ++i) {
     curr_rq = rqt->active[i];
     if (curr_rq == NULL_TIMESTAMP) {

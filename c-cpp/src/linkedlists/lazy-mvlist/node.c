@@ -17,40 +17,54 @@ node_l_t *new_node_l(val_t val, uint32_t depth) {
   return node_l;
 }
 
-void node_recycle_edge_l(node_l_t *node, node_l_t *next, timestamp_t ts,
-                         timestamp_t *active, uint32_t num_active) {
-  timestamp_t curr_rq_ts, curr_edge_ts;
-  int i, a, idx, found;
+/* Find an edge to recycle. It WILL NOT be the newest edge */
+int node_find_edge_to_recycle_l(node_l_t *node, timestamp_t *active,
+                                timestamp_t oldest_active,
+                                timestamp_t newest_active,
+                                uint32_t num_active) {
+  timestamp_t active_rq_ts, to_recycle_ts, next_edge_ts, temp_edge_ts;
+  int i, j, a, to_recycle, found;
   uint32_t depth, newest;
 
-  /* Find an edge to recycle. */
   depth = node->depth;
   newest = node->newest;
-  if (num_active > 0) {
-    found = 0;
-    /* TODO(jacnel): More elegantly find the index to recycle. */
-    for (i = 1; !found && i < depth; ++i) {
-      idx = (newest + i) % depth;
-      curr_edge_ts = node->ts[idx];
-      for (a = 0; !found && a < num_active; ++a) {
-        curr_rq_ts = active[a];
-        if (curr_edge_ts == NULL_TIMESTAMP || curr_edge_ts < curr_rq_ts) {
-          found = 1; /* Edge at index `to_recycle' may be recycled. */
+
+  if (num_active == 0 || oldest_active >= node->ts[newest]) {
+    /* If there are no active RQs or the oldest active RQ is newer than the
+     * newest edge then any edge can be recycled */
+    return (newest + 1) % depth;
+  }
+
+  for (i = 1; i < depth; ++i) {
+    to_recycle = (newest + i) % depth;
+    to_recycle_ts = node->ts[to_recycle];
+
+    if (to_recycle_ts == NULL_TIMESTAMP && to_recycle_ts > newest_active) {
+      return to_recycle;
+    } else {
+      /* The edge is not being set for the first time and the edge is older than
+       * the newest active RQ, then we must check if we can recycle it */
+      next_edge_ts = MAX_TIMESTAMP;
+      for (j = 1; j < depth; ++j) {
+        /* Search for the next newest edge in the node */
+        temp_edge_ts = node->ts[(to_recycle + j) % depth];
+        if (temp_edge_ts > to_recycle_ts && temp_edge_ts < next_edge_ts) {
+          next_edge_ts = temp_edge_ts;
+        }
+      }
+      /* Only the newest edge should have no greater edge */
+      assert(next_edge_ts != MAX_TIMESTAMP);
+
+      /* Assume the edge is recylcable and check for conflicts in active RQs*/
+      for (a = 0; a < num_active; ++a) {
+        active_rq_ts = active[a];
+        if (to_recycle_ts < active_rq_ts && next_edge_ts <= active_rq_ts) {
+          return to_recycle;
         }
       }
     }
-    assert(found);
-  } else {
-    idx = (newest + 1) % depth;
   }
-
-  /* Replace the edge with the new next pointer. */
-  node->newest_next = next; /* Visible to normal operations. */
-  node->next[idx] = next;
-  AO_compiler_barrier();
-  node->ts[idx] = ts;
-  AO_compiler_barrier();
-  node->newest = idx; /* Visible to RQs. */
+  assert(0); /* This should never be reached */
 }
 
 node_l_t *node_next_from_timestamp_l(node_l_t *node, timestamp_t ts) {
@@ -80,7 +94,6 @@ void node_dump_l(node_l_t *node) {
     printf("\t[%lu, %p]\n", node->ts[i], node->next[i]);
   }
 }
-
 
 void node_delete_l(node_l_t *node) {
   DESTROY_LOCK(&node->lock);

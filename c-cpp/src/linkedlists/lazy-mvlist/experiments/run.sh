@@ -21,10 +21,10 @@ echo "numa policy    : "$NUMA_POLICY
 echo "duration       : "$DURATION
 echo -e $MVL_GREEN"------------------------------------"$MVL_CLEAR
 
-echo -n "list, size, update_rate, max_rqs, rq_threads, rq_rate, num_threads"
+echo -n "list,size,update_rate,max_rqs,rq_threads,rq_rate,num_threads"
 i=0
 while [[ $i -lt ${#GREP[@]} ]]; do
-  echo -n ", "
+  echo -n ","
   echo -n ${GREP[i]}
   i=$(($i + 1))
 done
@@ -35,7 +35,7 @@ for list in $LISTS; do
   for size in $SIZES; do
     for update in $UPDATE_RATES; do
       for max_rq in $MAX_RQS; do
-        # TODO(jacnel): Make more flexible.
+        # TODO: Make more flexible.
         if [[ $RQ_THREADS -eq "ALL" ]]; then
           RQ_THREADS_=$(seq 0 $max_rq)
         else
@@ -62,13 +62,13 @@ for list in $LISTS; do
               done
 
               i=0
-              echo -n "$list, $size, $update, $max_rq, $rq_thread, $rq_rate, $thread"
+              echo -n "$list,$size,$update,$max_rq,$rq_thread,$rq_rate,$thread"
               while [[ $i -lt $TRIALS ]]; do
                 # Run trial and collect the results.
                 if [[ $list == $MVL_MVLIST ]]; then
-                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq -n${NUMA_POLICY} &>temp
+                  LD_PRELOAD=${MVL_JEMALLOC} $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -m$max_rq -n${NUMA_POLICY} &>temp
                 else
-                  $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U -n${NUMA_POLICY} &>temp
+                  LD_PRELOAD=${MVL_JEMALLOC} $MVL_BIN_DIR/$MVL_BIN -f0 -t$thread -d$DURATION -u$update -q$rq_thread -R$rq_rate -i$size -r$(($size * 2)) -U -n${NUMA_POLICY} &>temp
                 fi
 
                 # Grep for the desired result and accumulate for averaging.
@@ -92,7 +92,7 @@ for list in $LISTS; do
               i=0
               while [[ $i -lt ${#GREP[@]} ]]; do
                 avgs[i]=$(echo - | awk "{printf \"%4.1f\",${avgs[i]} / $TRIALS}")
-                echo -n ", "
+                echo -n ","
                 echo -n ${avgs[i]}
                 i=$(($i + 1))
               done
