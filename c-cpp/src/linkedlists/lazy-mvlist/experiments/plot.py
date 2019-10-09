@@ -13,7 +13,7 @@ class Data():
         self.df = pandas.read_csv(
             filename, sep=',', header=self.header_, engine='c')
 
-    def plot_all_txs(self, x_axis, y_axis, match, filter_on, group_by):
+    def plot(self, x_axis, y_axis, match, filter_on, group_by):
         assert(len(match) == len(filter_on))
         data = self.df
         for i in range(len(filter_on)):
@@ -35,11 +35,11 @@ class Data():
 
 if __name__ == '__main__':
     d = Data(filename='~/tmp/results/2ts-rwlock.csv')
-    match = ('unsafe', 5000, 100, 100, 8)
+    match = ('mvlist', 5000, 100, 100, 8)
     filter_on = ('list', 'size', 'update_rate', 'rq_rate', 'max_rqs')
-    fig = d.plot_all_txs('num_threads', '#rq txs', match, filter_on, 'rq_threads')
+    fig = d.plot('num_threads', '#rq txs', match, filter_on, 'rq_threads')
     fig.show()
-    fig = d.plot_all_txs('num_threads', '#update txs', match, filter_on, 'rq_threads')
+    fig = d.plot('num_threads', '#update txs', match, filter_on, 'rq_threads')
     fig.show()
-    fig = d.plot_all_txs('num_threads', '#txs', match, filter_on, 'rq_threads')
+    fig = d.plot('num_threads', '#txs', match, filter_on, 'rq_threads')
     fig.show()
